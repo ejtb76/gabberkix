@@ -4,8 +4,8 @@
  *
  *   kick_render [OUT.wav] [SEMIS] [NAME=VALUE ...] [--expect-hz HZ] [--max-ms MS]
  *
- * NAME is a parameter's name as the screen shows it (TUNE, SWEEP, SW.T, HOLD, DECAY, CLICK, LEVEL), VALUE in its
- * units. It prints the kick's length, its peak and the pitch of its body (its zero crossings after the sweep), and with --expect-hz fails (exit 1) when that pitch is more than 1.5 % off. The WAV is 32-bit float, mono,
+ * NAME is a parameter's name as the screen shows it (TUNE, SWEEP, ..., FREQ3, GAIN3, CUTOFF, D.DRV: app/kick/kick.c),
+ * VALUE in its units (a type by its name or its number: F.TYPE=BP, D.TYPE=GABBER). It prints the kick's length, its peak and the pitch of its body (its zero crossings after the sweep), and with --expect-hz fails (exit 1) when that pitch is more than 1.5 % off. The WAV is 32-bit float, mono,
  * 44.1 kHz: what the engine made, not clipped.
  * Build: tools/build_render.sh (gcc, in WSL or on Linux). */
 #include <math.h>
@@ -67,6 +67,17 @@ static int param_by_name(const char *n, size_t len)
     return -1;
 }
 
+static int value(int k, const char *s)   /* a number, or a type's name (F.TYPE=BP) */
+{
+    const kick_param_info_t *in = kick_param_info(k);
+    int v;
+    if (in->unit == KU_LIST)
+        for (v = in->min; v <= in->max; v++)
+            if (!strcmp(in->list[v - in->min], s))
+                return v;
+    return atoi(s);
+}
+
 int main(int argc, char **argv)
 {
     kick_params_t p;
@@ -90,7 +101,7 @@ int main(int argc, char **argv)
                 fprintf(stderr, "kick_render: no parameter %.*s\n", (int)(eq - argv[a]), argv[a]);
                 return 2;
             }
-            p.v[k] = (int16_t)atoi(eq + 1);
+            p.v[k] = (int16_t)value(k, eq + 1);
         } else if (strstr(argv[a], ".wav"))
             out = argv[a];
         else
@@ -101,7 +112,9 @@ int main(int argc, char **argv)
     for (i = 0; i < n; i++)
         if (fabs(buf[i]) > peak)
             peak = fabs(buf[i]);
-    for (i = 0; i < KP_COUNT; i++) {
+    for (i = 0; i < KP_COUNT; i++) {     /* what differs from the blank 909 */
+        if (p.v[i] == kick_param_info((int)i)->def)
+            continue;
         kick_param_text((int)i, p.v[i], t);
         printf("%s %s  ", kick_param_info((int)i)->name, t);
     }

@@ -1,0 +1,72 @@
+# The midbody chain's pages: SELECT, the shortcuts (HOME, EDIT, LFO, FX, GLO), turning while PLAY runs, the pictures
+master 4096
+wait 300
+wav chain.wav
+tap PLAY
+wait 400
+# EDIT: EQ 1-2 (page 2); again: EQ 3-4, ... EQ 7-8, and round to EQ 1-2
+tap EDIT
+expect page 2
+tap EDIT
+expect page 3
+tap EDIT
+tap EDIT
+expect page 5
+tap EDIT
+expect page 2
+# band 1 (row 1): +18 dB, Q up; band 2 (SEL held): its gain down
+turn K3 18
+expect p13 18
+turn K4 30
+expect p14 >100
+press SEL
+turn K3 -12
+release SEL
+expect p17 -12
+wait 800
+shot eq12.png
+# away and back: EDIT returns to the EQ page left
+tap HOME
+expect page 0
+tap EDIT
+expect page 2
+# LFO: FILTER (page 6), again: PRE (1), again: FILTER
+tap LFO
+expect page 6
+turn K1 2
+expect p43 3
+turn K2 -60
+turn K3 60
+wait 800
+shot filter.png
+tap LFO
+expect page 1
+tap LFO
+expect page 6
+# FX: DIST (7); a type, a push
+tap FX
+expect page 7
+turn K1 4
+expect p50 4
+turn K2 12
+expect p51 30
+wait 800
+shot dist.png
+# GLO: POST (8)
+tap GLO
+expect page 8
+turn K3 -9
+expect p57 -9
+wait 800
+shot post.png
+# SELECT still walks every page, and stops at the ends
+turn SELECT -20
+expect page 0
+turn SELECT 3
+expect page 3
+turn SELECT 20
+expect page 8
+tap PLAY
+expect playing 0
+wait 600
+wavstop

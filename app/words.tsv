@@ -2,3 +2,21 @@
 # GABBERKIX's words for a screen reader (fm1-reader): the text on the screen <TAB> what to say.
 # url: https://ejtb76.github.io/gabberkix/words/
 GABBERKIX	gabber kicks
+SW.T	sweep time
+P.TYPE	pre filter type
+P.FREQ	pre filter frequency
+P.RESO	pre filter resonance
+P.DRV	pre filter drive
+F.TYPE	filter type
+F.DRV	filter drive
+ENV.T	envelope time
+KEYTRK	key tracking
+D.TYPE	distortion type
+D.DRV	distortion drive
+LO.SH	low shelf
+HI.SH	high shelf
+GABBER	gabber
+EQ 1-2	E Q 1 and 2
+EQ 3-4	E Q 3 and 4
+EQ 5-6	E Q 5 and 6
+EQ 7-8	E Q 7 and 8
