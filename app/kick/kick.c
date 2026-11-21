@@ -9,13 +9,11 @@
 #define CLICK_TAU_MS 1.2f                /* the click's noise burst */
 #define SILENT 1e-5f                     /* -100 dB: a voice below it is done */
 #define QUIET_SAMPLES 2048u              /* the chain is done when its output was silent this long (46 ms) */
-#define FLT_STEP 8u                      /* the FILTER's cutoff moves every 8 samples (its envelope) */
 #define F_MIN 20.0f
 #define F_MAX (0.45f * KICK_RATE)        /* 19.8 kHz: the SVF's tan stays far from its pole */
 #define DC_R 0.99929f                    /* the DC blocker after the distortion: 5 Hz */
 
 /* ------------------------------------------------------------ parameters --- */
-static const char *const FLT_T[KFT_N] = {"OFF", "LP", "HP", "BP", "NOTCH"};
 static const char *const DIST_T[KDT_N] = {"OFF", "TANH", "HARD", "FOLD", "GABBER"};
 
 /* an EQ band, at its first parameter: a gain-0 peak at f (so it does nothing until its GAIN moves), Q 1 */
@@ -43,17 +41,10 @@ static const kick_param_info_t INFO[KP_COUNT] = {
     BAND(KP_EQ + 5 * KB_N, "6", 1250),
     BAND(KP_EQ + 6 * KB_N, "7", 2500),
     BAND(KP_EQ + 7 * KB_N, "8", 5000),
-    [KP_FLT_TYPE] = {"F.TYPE", 0, KFT_N - 1, KFT_LP, KU_LIST, 1, FLT_T},
-    [KP_FLT_FREQ] = {"CUTOFF", 20, 19800, 19800, KU_HZ, 0, 0},
-    [KP_FLT_RESO] = {"RESO", 0, 100, 0, KU_PCT, 2, 0},
-    [KP_FLT_DRIVE] = {"F.DRV", 0, 48, 0, KU_DB, 1, 0},
-    [KP_FLT_ENV] = {"ENV", 0, 600, 0, KU_OCT, 5, 0},
-    [KP_FLT_ENV_T] = {"ENV.T", 1, 1000, 40, KU_MS, 0, 0},
-    [KP_FLT_KEY] = {"KEYTRK", 0, 100, 0, KU_PCT, 5, 0},
-    [KP_DIST_TYPE] = {"D.TYPE", 0, KDT_N - 1, KDT_OFF, KU_LIST, 1, DIST_T},
+    [KP_DIST_TYPE] = {"D.TYPE", 0, KDT_N - 1, KDT_GABBER, KU_LIST, 1, DIST_T},   /* a new kick: a classic gabber */
     [KP_DIST_DRIVE] = {"D.DRV", 0, 60, 18, KU_DB, 1, 0},
     [KP_DIST_BIAS] = {"BIAS", -100, 100, 0, KU_PCT, 5, 0},
-    [KP_DIST_OUT] = {"OUT", -36, 12, 0, KU_DB, 1, 0},
+    [KP_DIST_OUT] = {"OUT", -36, 12, -9, KU_DB, 1, 0},   /* GABBER at 18 dB is 9 dB louder than the clean kick */
     [KP_DIST_MIX] = {"MIX", 0, 100, 100, KU_PCT, 5, 0},
     BAND(KP_POST + 0 * KB_N, "A", 60),
     BAND(KP_POST + 1 * KB_N, "B", 3000),
@@ -198,37 +189,17 @@ static void svf_update(kick_svf_t *s)    /* a1..a3 from g and k */
     s->a3 = s->g * s->a2;
 }
 
-/* the mix of a resonant filter (PRE, FILTER), which depends on k alone */
-static void svf_mix(kick_svf_t *s, int type)
-{
-    s->m0 = s->m1 = s->m2 = 0.0f;
-    switch (type) {
-    case KFT_LP:
-        s->m2 = 1.0f;
-        break;
-    case KFT_HP:
-        s->m0 = 1.0f, s->m1 = -s->k, s->m2 = -1.0f;
-        break;
-    case KFT_BP:                         /* 0 dB at the cutoff, whatever the resonance */
-        s->m1 = s->k;
-        break;
-    default:                             /* KFT_NOTCH */
-        s->m0 = 1.0f, s->m1 = -s->k;
-        break;
-    }
-}
-
 static float reso_k(int pct)             /* 0 %: Q 0.71 (flat to the cutoff); 100 %: Q 45, a long ring */
 {
     return 1.4142136f * fm_exp2f(-(float)pct * 0.06f);
 }
 
-static void cook_resonant(kick_svf_t *s, int type, int hz, int reso)
+static void cook_lowpass(kick_svf_t *s, int hz, int reso)   /* PRE */
 {
-    s->on = type != KFT_OFF;
     s->g = fm_tanf(FM_PI * clamp_f((float)hz) / (float)KICK_RATE);
     s->k = reso_k(reso);
-    svf_mix(s, type);
+    s->m0 = s->m1 = 0.0f;
+    s->m2 = 1.0f;
     svf_update(s);
 }
 
@@ -278,18 +249,11 @@ void kick_cook(const kick_params_t *p, kick_coefs_t *c)
     c->decay_k = decay_per_sample((float)v[KP_DECAY], 60.0f);
     c->click = (float)v[KP_CLICK] * 0.006f;   /* 100 % is a burst at 0.6 */
     c->level = fm_db2lin((float)v[KP_LEVEL]);
-    c->tune = v[KP_TUNE];
-    cook_resonant(&c->pre, KFT_LP, v[KP_PRE_FREQ], v[KP_PRE_RESO]);
+    cook_lowpass(&c->pre, v[KP_PRE_FREQ], v[KP_PRE_RESO]);
     c->pre.on = v[KP_PRE_FREQ] < INFO[KP_PRE_FREQ].max || v[KP_PRE_RESO] > 0;
     c->pre_drive = v[KP_PRE_DRIVE] ? fm_db2lin((float)v[KP_PRE_DRIVE]) : 0.0f;
     for (b = 0; b < KICK_EQ_BANDS; b++)
         cook_band(&c->eq[b], &v[KP_EQ + KB_N * b]);
-    cook_resonant(&c->flt, v[KP_FLT_TYPE], v[KP_FLT_FREQ], v[KP_FLT_RESO]);
-    c->flt_f = clamp_f((float)v[KP_FLT_FREQ]) / (float)KICK_RATE;
-    c->flt_drive = v[KP_FLT_DRIVE] ? fm_db2lin((float)v[KP_FLT_DRIVE]) : 0.0f;
-    c->flt_env = (float)v[KP_FLT_ENV] * 0.01f;
-    c->flt_env_k = fm_expf(-(float)FLT_STEP / ((float)v[KP_FLT_ENV_T] * MS));
-    c->flt_key = (float)v[KP_FLT_KEY] * 0.01f;
     c->dist = (uint8_t)v[KP_DIST_TYPE];
     c->dist_in = fm_db2lin((float)v[KP_DIST_DRIVE]);
     c->dist_bias = (float)v[KP_DIST_BIAS] * 0.005f;   /* 100 %: half way to where the shaper bites */
@@ -334,8 +298,6 @@ float kick_curve(const kick_coefs_t *c, int what, float hz)
     for (b = 0; b < KICK_EQ_BANDS; b++)
         if (c->eq[b].on)
             db += svf_db(&c->eq[b], t);
-    if (c->flt.on)
-        db += svf_db(&c->flt, t);
     return db;
 }
 
@@ -344,7 +306,7 @@ static void chain_reset(kick_chain_t *ch)
 {
     float *z = &ch->pre[0];
     uint32_t i;
-    for (i = 0; i < (uint32_t)(sizeof ch->pre + sizeof ch->eq + sizeof ch->flt + sizeof ch->post) / sizeof(float); i++)
+    for (i = 0; i < (uint32_t)(sizeof ch->pre + sizeof ch->eq + sizeof ch->post) / sizeof(float); i++)
         z[i] = 0.0f;
     ch->dc_x = ch->dc_y = 0.0f;
     ch->quiet = QUIET_SAMPLES;           /* nothing to ring */
@@ -355,8 +317,6 @@ void kick_engine_reset(kick_engine_t *e)
     e->v[0].on = e->v[1].on = 0;
     e->cur = 0;
     chain_reset(&e->ch);
-    e->ch.env = 0.0f;
-    e->ch.semis = 0;
 }
 
 static void voice_start(kick_voice_t *v, const kick_coefs_t *c, int semis)
@@ -393,9 +353,7 @@ void kick_trigger(kick_engine_t *e, const kick_coefs_t *c, int semis)
         old->fade = 0.999f;
     e->cur ^= 1u;
     voice_start(&e->v[e->cur], c, semis);
-    e->ch.env = 1.0f;                    /* the FILTER's envelope starts again; the filters keep ringing */
-    e->ch.semis = semis;
-    e->ch.quiet = 0;
+    e->ch.quiet = 0;                     /* (the filters keep ringing under the new kick) */
 }
 
 static void voice_render(kick_voice_t *v, float *out, uint32_t n)
@@ -460,33 +418,6 @@ static void drive_run(float d, float *buf, uint32_t n)
         buf[i] = fm_tanhf(buf[i] * d);
 }
 
-/* the FILTER: its cutoff follows the envelope and the key, re-tuned every FLT_STEP samples */
-static void flt_run(kick_chain_t *ch, const kick_coefs_t *c, float *buf, uint32_t n)
-{
-    kick_svf_t s = c->flt;
-    float key = c->flt_key * (float)(ch->semis + c->tune) * (1.0f / 12.0f);
-    uint32_t i;
-    if (c->flt_drive > 0.0f)
-        drive_run(c->flt_drive, buf, n);
-    for (i = 0; i < n; i += FLT_STEP) {
-        uint32_t m = n - i < FLT_STEP ? n - i : FLT_STEP;
-        float oct = key + c->flt_env * ch->env, f = c->flt_f;
-        if (oct != 0.0f) {
-            f *= fm_exp2f(oct);
-            if (f > F_MAX / (float)KICK_RATE)
-                f = F_MAX / (float)KICK_RATE;
-            else if (f < F_MIN / (float)KICK_RATE)
-                f = F_MIN / (float)KICK_RATE;
-            s.g = fm_tanf(FM_PI * f);
-            svf_update(&s);
-        }
-        svf_run(&s, ch->flt, buf + i, m);
-        ch->env *= c->flt_env_k;
-    }
-    if (ch->env < 1e-6f)
-        ch->env = 0.0f;
-}
-
 static void dist_run(kick_chain_t *ch, const kick_coefs_t *c, float *buf, uint32_t n)
 {
     uint32_t i;
@@ -519,8 +450,6 @@ void kick_chain(kick_engine_t *e, const kick_coefs_t *c, float *buf, uint32_t n)
     for (b = 0; b < KICK_EQ_BANDS; b++)
         if (c->eq[b].on)
             svf_run(&c->eq[b], ch->eq[b], buf, n);
-    if (c->flt.on)
-        flt_run(ch, c, buf, n);
     if (c->dist != KDT_OFF)
         dist_run(ch, c, buf, n);
     for (b = 0; b < KICK_POST_BANDS; b++)
@@ -551,6 +480,26 @@ void kick_render(kick_engine_t *e, const kick_coefs_t *c, float *out, uint32_t n
         e->ch.quiet = 0;
     else if ((e->ch.quiet += n) >= QUIET_SAMPLES)
         chain_reset(&e->ch);             /* rung out: from zero next time (no denormals, no old state) */
+}
+
+/* the master: a peak limiter (instant attack, so nothing passes the ceiling; 80 ms release) */
+#define LIM_CEIL 0.966f                  /* -0.3 dBFS */
+void kick_master(float *env, float *buf, uint32_t n)
+{
+    static float rel;
+    float e = *env;
+    uint32_t i;
+    if (rel == 0.0f)
+        rel = fm_expf(-1.0f / (80.0f * MS));
+    for (i = 0; i < n; i++) {
+        float a = fm_fabsf(buf[i]);
+        e *= rel;                        /* falls, but never under the signal */
+        if (a > e)
+            e = a;
+        if (e > LIM_CEIL)
+            buf[i] *= LIM_CEIL / e;
+    }
+    *env = fm_flush(e);
 }
 
 int kick_sounding(const kick_engine_t *e) { return e->v[0].on || e->v[1].on || e->ch.quiet < QUIET_SAMPLES; }

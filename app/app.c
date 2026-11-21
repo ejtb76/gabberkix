@@ -1,14 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only AND MPL-2.0
  * Copyright (C) 2026 Presethead. text_cat, int_text and app_say are from fm1-base's template (template/app.c),
  * Copyright (C) 2026 Charles Vestal, MPL-2.0 (base/LICENSE); the rest is GPL-3.0-only (LICENSE). */
-/* GABBERKIX: a kick designer for the FM-1. The midbody so far: a synthesized 909 through a filter with drive, an
- * eight-band parametric EQ, a resonant filter, a distortion and a two-band EQ after it (app/kick/kick.h), played by
+/* GABBERKIX: a kick designer for the FM-1. The midbody so far: a synthesized 909 through a lowpass with drive, an
+ * eight-band parametric EQ, a distortion and a two-band EQ after it, then a limiter (app/kick/kick.h), played by
  * PLAY (a kick on every beat at the root, G1) and by the keys and MIDI notes (pitched, an octave down to an octave
  * up).
  *
  * The panel:
- *   SELECT       the page: 909, PRE (a lowpass with drive), EQ, FILTER, DIST, POST
- *   HOME         909      EDIT  EQ (again: the next band)            LFO  FILTER (again: PRE, and back)
+ *   SELECT       the page: 909, PRE (a lowpass with drive), EQ, DIST, POST
+ *   HOME         909      EDIT  EQ (again: the next band)            LFO  PRE
  *   FX           DIST     GLO   POST
  *   K1..K4       the page's first four parameters; with SEL held, the next four
  *   PRESETS      tempo, 60..300 BPM
@@ -29,7 +29,7 @@
 
 /* --------------------------------------------------------------- pages --- */
 /* a page: up to eight parameters, K1..K4 and (SEL held) K1..K4 again; -1 = none. On the EQ page K1 chooses a band
- * (PS_BAND) and K2..K4 are that band's gain, frequency and Q. Under them a picture: the kick's first second, the curves
+ * (PS_BAND) and K2..K4 are that band's gain, Q and frequency. Under them a picture: the kick's first second, the curves
  * of the filters before the distortion (each EQ band a dot, its own curve faint, the sum bright), the kick's
  * spectrum, or the spectrum with the POST's curves over it. */
 enum { V_WAVE, V_CURVE, V_SPEC, V_POST };
@@ -42,15 +42,13 @@ typedef struct {
     uint8_t button;                      /* its shortcut, B_*: lit while it shows */
 } page_t;
 #define POSTB(b, j) (KP_POST + KB_N * (b) + (j))
-enum { PG_909, PG_PRE, PG_EQ, PG_FILTER, PG_DIST, PG_POST };
+enum { PG_909, PG_PRE, PG_EQ, PG_DIST, PG_POST };
 static const page_t PAGES[] = {
     [PG_909] = {"909", {KP_SWEEP, KP_SWEEP_T, KP_HOLD, KP_DECAY, KP_TUNE, KP_CLICK, KP_LEVEL, -1}, V_WAVE, {-1, -1},
                 B_HOME},
     [PG_PRE] = {"PRE", {KP_PRE_FREQ, KP_PRE_RESO, KP_PRE_DRIVE, -1, -1, -1, -1, -1}, V_CURVE,
                 {KP_PRE_FREQ, KP_PRE_FREQ}, B_LFO},
-    [PG_EQ] = {"EQ", {PS_BAND, PS_GAIN, PS_FREQ, PS_Q, -1, -1, -1, -1}, V_CURVE, {-1, -1}, B_EDIT},
-    [PG_FILTER] = {"FILTER", {KP_FLT_TYPE, KP_FLT_FREQ, KP_FLT_RESO, KP_FLT_DRIVE, KP_FLT_ENV, KP_FLT_ENV_T,
-                   KP_FLT_KEY, -1}, V_CURVE, {KP_FLT_FREQ, KP_FLT_FREQ}, B_LFO},
+    [PG_EQ] = {"EQ", {PS_BAND, PS_GAIN, PS_Q, PS_FREQ, -1, -1, -1, -1}, V_CURVE, {-1, -1}, B_EDIT},
     [PG_DIST] = {"DIST", {KP_DIST_TYPE, KP_DIST_DRIVE, KP_DIST_BIAS, KP_DIST_OUT, KP_DIST_MIX, -1, -1, -1}, V_SPEC,
                  {-1, -1}, B_FX},
     [PG_POST] = {"POST", {POSTB(0, KB_FREQ), POSTB(0, KB_GAIN), POSTB(0, KB_Q), -1, POSTB(1, KB_FREQ),
@@ -117,6 +115,7 @@ static void midi_in(void)                /* audio interrupt: the notes that came
 
 static float mono[APP_BLOCK];
 static float gain_now;                   /* glides to MASTER: no step at a block's edge */
+static float lim_env;                    /* the master limiter's */
 
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
@@ -147,10 +146,11 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         kick_render(&engine, &coefs[coefs_cur], mono + done, m);
         done += m;
     }
+    kick_master(&lim_env, mono, n);      /* the master: a limiter at -0.3 dBFS, then MASTER's volume */
     for (i = 0; i < n; i++) {
         float s = mono[i];
         gain_now += (gain - gain_now) * 0.004f;
-        if (s > 1.0f)                    /* the master: nothing above 0 dBFS reaches the output */
+        if (s > 1.0f)                    /* (the limiter keeps it under; this is the last guard) */
             s = 1.0f;
         else if (s < -1.0f)
             s = -1.0f;
@@ -350,7 +350,7 @@ static void input(void)
                     p = PG_EQ;
             }
             else if (k == B_LFO)
-                p = ui.page == PG_FILTER ? PG_PRE : PG_FILTER;
+                p = PG_PRE;
             else if (k == B_FX)
                 p = PG_DIST;
             else if (k == B_GLO)
@@ -478,7 +478,7 @@ static void spec_draw(uint16_t color)
     }
 }
 
-static void curve_draw(int what, uint16_t color)   /* the sum: PRE, EQ and FILTER, or POST */
+static void curve_draw(int what, uint16_t color)   /* the sum: PRE and the EQ, or POST */
 {
     const kick_coefs_t *c = &coefs[coefs_cur];
     int32_t x, py = db_y(kick_curve(c, what, COL_HZ(0)));

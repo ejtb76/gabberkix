@@ -4,7 +4,7 @@
 attack and a sub for the low end, pressed into one kick by groups driven hard into clippers.
 
 > **Status: phase 2 of 6, not yet tried on an FM-1.** The midbody is in: a synthesized 909 through a lowpass with
-> drive, an eight-band parametric EQ, a resonant filter, a distortion and an EQ after it, played on every beat or pitched from the
+> drive, an eight-band parametric EQ, a distortion and an EQ after it, played on every beat or pitched from the
 > keys and MIDI. Punch, groups, sub and presets follow (`kick-firmware-instructions.md`).
 
 Built on [fm1-base](https://github.com/charlesvestal/fm1-base) and felucca-bsp, from Felucca by Leo Kuroshita
@@ -13,12 +13,12 @@ Built on [fm1-base](https://github.com/charlesvestal/fm1-base) and felucca-bsp, 
 ## The sound so far
 
 ```
-909 -> PRE -> EQ (8 peaks) -> FILTER -> DIST -> POST (2 peaks)
+909 -> PRE -> EQ (8 peaks) -> DIST -> POST (2 peaks)
 ```
 
 The source is a blank 909: a sine whose pitch falls from a sweep to the root (G1, 49 Hz), a short noise click on the
 attack, and a hold-then-decay envelope. Everything after it is there to choose what the distortion gets: extreme EQ
-boosts and cuts and a screaming resonant filter in front of a clipper make the kick's character; the distortion alone
+boosts and cuts in front of a clipper make the kick's character; the distortion alone
 gives an oldschool gabber kick.
 
 - **PRE**: a lowpass with resonance and a drive in front of it. Open, with no resonance and no drive (a new kick's),
@@ -26,24 +26,27 @@ gives an oldschool gabber kick.
 - **EQ**: a parametric EQ of eight peaks, each up to ±30 dB and Q 30: wide boosts and deep, narrow cuts. A new kick
   has them at 0 dB (40 Hz to 5 kHz): they do nothing until their gain moves. There is no low cut on purpose: the lows
   are what a kick is, and what drives the distortion; a low band turned down takes some away.
-- **FILTER**: the filter just before the distortion, the one that shapes the kick most: LP, HP, BP or notch, resonance
-  up to Q 45, a drive, an envelope that starts the cutoff up to six octaves higher and lets it fall, and key tracking.
 - **DIST**: TANH (soft), HARD (a hard clip), FOLD (a sine wavefolder) or GABBER (a soft stage 12 dB hotter with a buzz
   of even harmonics, into a hard clip); drive up to 60 dB, a bias for asymmetry, out level and dry/wet mix.
 - **POST**: two more peaks, as the EQ's, after the distortion.
+- **The master**: a peak limiter at -0.3 dBFS, then MASTER's volume.
+
+A new kick has the distortion on, GABBER at 18 dB: a classic gabber kick at once. Its OUT is at -9 dB, which keeps it
+about as loud as the clean 909: a distorted kick is a near-square wave, far denser than a clean one. Turn OUT up to
+push the limiter, down when the drive goes up.
 
 Everything is computed in single-precision float, which the FM-1's FPU runs; inside the engine the signal may go far
-above full scale, and only the master stops it at 0 dBFS. Every filter is one state-variable filter, and the curve on
+above full scale, and only the master stops it. Every filter is one state-variable filter, and the curve on
 the screen is computed from the same coefficients the sound uses (`tools/chain_test.c` checks they agree).
 
 ## Controls
 
 | Control | What it does |
 | --- | --- |
-| **SELECT** | The page: 909, PRE, EQ, FILTER, DIST, POST |
+| **SELECT** | The page: 909, PRE, EQ, DIST, POST |
 | **HOME** | The 909 page |
 | **EDIT** | The EQ page; again: the next band |
-| **LFO** | The FILTER page; again: PRE, and back |
+| **LFO** | The PRE page |
 | **FX** | The DIST page |
 | **GLO** | The POST page |
 | **K1–K4** | The page's top row |
@@ -60,14 +63,13 @@ The pages' knobs:
 | --- | --- | --- |
 | **909** | SWEEP (how far above the root the pitch starts, in octaves), SW.T (how fast it falls), HOLD, DECAY (to -60 dB) | TUNE (the root, ±12 semitones from G1), CLICK, LEVEL |
 | **PRE** | P.CUT, P.RESO, P.DRV | |
-| **EQ** | BAND (1–8), and its GAIN, FREQ, Q | |
-| **FILTER** | F.TYPE, CUTOFF, RESO, F.DRV | ENV (octaves), ENV.T (how fast it falls), KEYTRK |
+| **EQ** | BAND (1–8), and its GAIN, Q, FREQ | |
 | **DIST** | D.TYPE, D.DRV, BIAS, OUT | MIX |
 | **POST** | band A: FREQ, GAIN, Q | band B |
 
 Under the knobs the screen shows the kick's first second (909); the filters before the distortion as an EQ plugin
 draws them, each band a numbered dot with its own faint curve, the band the knobs turn lit, their sum the bright line
-(PRE, EQ, FILTER; on PRE and FILTER a line at the cutoff); the kick's spectrum (DIST); or the spectrum with the POST's
+(PRE, EQ; on PRE a line at the cutoff); the kick's spectrum (DIST); or the spectrum with the POST's
 bands over it (POST).
 
 ## Building and testing
@@ -86,8 +88,8 @@ sh tests/run_tests.sh           # the offline render's checks, the chain's, and 
 ```
 build/kick_render kick.wav                    # the blank 909
 build/kick_render kick.wav 12 DECAY=900       # an octave up, a longer decay
-build/kick_render kick.wav GAIN3=18 Q3=400 F.TYPE=BP CUTOFF=900 RESO=60 D.TYPE=GABBER D.DRV=30
-                                              # a band boosted, a resonant band-pass, GABBER
+build/kick_render kick.wav GAIN3=18 Q3=400 P.CUT=900 P.RESO=60 D.TYPE=GABBER D.DRV=30
+                                              # a band boosted, a resonant lowpass, GABBER
 ```
 
 Install over USB from Windows (Python with mido and python-rtmidi):

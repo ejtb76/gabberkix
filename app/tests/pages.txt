@@ -1,6 +1,6 @@
 # The midbody chain's pages: SELECT, the shortcuts (HOME, EDIT, LFO, FX, GLO), turning while PLAY runs, the pictures.
-# Pages: 0 909, 1 PRE, 2 EQ, 3 FILTER, 4 DIST, 5 POST. Parameters: EQ band b (0..7) FREQ 10+3b, GAIN 11+3b, Q 12+3b;
-# FILTER 34..40; DIST 41..45; POST A 46..48, B 49..51. The EQ page: K1 band, K2 gain, K3 frequency, K4 Q.
+# Pages: 0 909, 1 PRE, 2 EQ, 3 DIST, 4 POST. Parameters: PRE 7..9; EQ band b (0..7) FREQ 10+3b, GAIN 11+3b,
+# Q 12+3b; DIST 34..38; POST A 39..41, B 42..44. The EQ page: K1 band, K2 gain, K3 Q, K4 frequency.
 master 4096
 wait 300
 wav chain.wav
@@ -19,26 +19,26 @@ expect band 1
 # band 1 (40 Hz): -30 dB, narrow
 turn K2 -30
 expect p11 -30
-turn K4 40
+turn K3 40
 expect p12 >250
 # band 2 (80 Hz): down to about 60 Hz, +24 dB, wide
 turn K1 1
 expect band 2
-turn K3 -9
+turn K4 -9
 turn K2 24
 expect p14 24
-turn K4 -6
+turn K3 -6
 # band 3 (160 Hz): up to about 200 Hz, -30 dB
 turn K1 1
-turn K3 8
+turn K4 8
 turn K2 -30
 expect p17 -30
 # band 6 (1.25 kHz): down to about 840 Hz, a very narrow notch
 turn K1 3
 expect band 6
-turn K3 -13
+turn K4 -13
 turn K2 -30
-turn K4 110
+turn K3 110
 expect p26 -30
 # band 5 (640 Hz): +15 dB
 turn K1 -1
@@ -51,37 +51,35 @@ expect page 0
 tap EDIT
 expect page 2
 expect band 5
-# LFO: FILTER, again: PRE, again: FILTER
-tap LFO
-expect page 3
-turn K1 2
-expect p34 3
-turn K2 -60
-turn K3 60
-wait 800
-shot filter.png
+# LFO: PRE; the cutoff down, resonance, drive
 tap LFO
 expect page 1
-tap LFO
-expect page 3
-# FX: DIST; a type, a push
+turn K1 -40
+turn K2 50
+expect p8 >40
+turn K3 12
+expect p9 12
+wait 800
+shot pre.png
+# FX: DIST (GABBER, 18 dB on a new kick): FOLD, more push
 tap FX
-expect page 4
-turn K1 4
-expect p41 4
+expect page 3
+expect p34 4
+turn K1 -1
+expect p34 3
 turn K2 12
-expect p42 30
+expect p35 30
 wait 800
 shot dist.png
 # GLO: POST; band A down, band B (SEL held) up
 tap GLO
-expect page 5
+expect page 4
 turn K2 -9
-expect p47 -9
+expect p40 -9
 press SEL
 turn K2 6
 release SEL
-expect p50 6
+expect p43 6
 wait 800
 shot post.png
 # SELECT still walks every page, and stops at the ends
@@ -90,7 +88,7 @@ expect page 0
 turn SELECT 2
 expect page 2
 turn SELECT 20
-expect page 5
+expect page 4
 tap PLAY
 expect playing 0
 wait 600

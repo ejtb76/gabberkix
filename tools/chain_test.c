@@ -16,10 +16,11 @@
 static float buf[N], ref[N];
 static int fails;
 
-static void neutral(kick_params_t *p)    /* every filter and the distortion off (the bands are at 0 dB) */
+static void neutral(kick_params_t *p)    /* every filter and the distortion off */
 {
     kick_params_default(p);
-    p->v[KP_FLT_TYPE] = KFT_OFF;
+    p->v[KP_DIST_TYPE] = KDT_OFF;
+    p->v[KP_DIST_OUT] = 0;
 }
 
 static double sine_gain_db(const kick_coefs_t *c, double hz)   /* the chain's gain for a steady sine, measured */
@@ -73,7 +74,7 @@ static void band_check(int f, int gain, int q)
     check(worst < 0.5, what);
 }
 
-static void resonant_check(int type, int f, int reso)
+static void pre_check(int f, int reso)   /* PRE, the lowpass: measured against kick_curve */
 {
     static const double AT[] = {30.0, 100.0, 400.0, 800.0, 1000.0, 1250.0, 3000.0, 10000.0};
     kick_params_t p;
@@ -82,9 +83,8 @@ static void resonant_check(int type, int f, int reso)
     double worst = 0.0;
     uint32_t i;
     neutral(&p);
-    p.v[KP_FLT_TYPE] = (int16_t)type;
-    p.v[KP_FLT_FREQ] = (int16_t)f;
-    p.v[KP_FLT_RESO] = (int16_t)reso;
+    p.v[KP_PRE_FREQ] = (int16_t)f;
+    p.v[KP_PRE_RESO] = (int16_t)reso;
     kick_cook(&p, &c);
     for (i = 0; i < sizeof AT / sizeof AT[0]; i++) {
         double m = sine_gain_db(&c, AT[i]), want = kick_curve(&c, KC_PRE, (float)AT[i]);
@@ -94,9 +94,7 @@ static void resonant_check(int type, int f, int reso)
         if (d > worst)
             worst = d;
     }
-    kick_param_text(KP_FLT_TYPE, type, what);
-    snprintf(what + strlen(what), sizeof what - strlen(what), " FILTER %d Hz reso %d%%: curve = sound (worst %.2f dB)",
-             f, reso, worst);
+    snprintf(what, sizeof what, "PRE lowpass %d Hz reso %d%%: curve = sound (worst %.2f dB)", f, reso, worst);
     check(worst < 0.5, what);
 }
 
@@ -158,11 +156,9 @@ int main(void)
     band_check(820, -30, 2500);          /* a notch as narrow as an EQ plugin's */
     band_check(3600, -26, 400);
     band_check(60, 24, 80);
-    resonant_check(KFT_LP, 1000, 0);
-    resonant_check(KFT_LP, 1000, 80);
-    resonant_check(KFT_HP, 400, 50);
-    resonant_check(KFT_BP, 1250, 60);
-    resonant_check(KFT_NOTCH, 800, 30);
+    pre_check(1000, 0);
+    pre_check(1000, 80);
+    pre_check(250, 100);
 
     /* the band curves add up to the curve (what the screen draws: each band, and their sum) */
     {
@@ -205,9 +201,9 @@ int main(void)
     }
     kick_params_default(&p);
     kick_cook(&p, &c);
-    check(fabs(kick_curve(&c, KC_PRE, 49.0f)) < 0.01 && fabs(kick_curve(&c, KC_PRE, 5000.0f)) < 0.2 &&
-              fabs(kick_curve(&c, KC_POST, 1000.0f)) < 0.01,
-          "the blank 909's curves are flat (the FILTER's LP at 19.8 kHz: under 0.2 dB at 5 kHz)");
+    check(kick_curve(&c, KC_PRE, 49.0f) == 0.0f && kick_curve(&c, KC_PRE, 5000.0f) == 0.0f &&
+              kick_curve(&c, KC_POST, 1000.0f) == 0.0f,
+          "the blank 909's curves are flat");
 
     /* the extremes */
     kick_params_default(&p);
@@ -220,15 +216,47 @@ int main(void)
     finite_and_done(&p, "eight bands at +30 dB, Q 30 (20 Hz .. 19.8 kHz)");
     kick_params_default(&p);
     p.v[KP_PRE_RESO] = 100, p.v[KP_PRE_DRIVE] = 48, p.v[KP_PRE_FREQ] = 20;
-    p.v[KP_FLT_TYPE] = KFT_LP, p.v[KP_FLT_RESO] = 100, p.v[KP_FLT_DRIVE] = 48, p.v[KP_FLT_FREQ] = 20;
-    p.v[KP_FLT_ENV] = 600, p.v[KP_FLT_KEY] = 100;
     p.v[KP_DIST_TYPE] = KDT_GABBER, p.v[KP_DIST_DRIVE] = 60, p.v[KP_DIST_BIAS] = 100;
-    finite_and_done(&p, "full resonance and drive at 20 Hz, a 6-octave envelope, GABBER at 60 dB");
-    p.v[KP_FLT_FREQ] = 19800, p.v[KP_PRE_FREQ] = 19800, p.v[KP_DIST_TYPE] = KDT_FOLD;
-    finite_and_done(&p, "the same at 19.8 kHz, FOLD");
+    finite_and_done(&p, "PRE at 20 Hz, full resonance and drive, GABBER at 60 dB");
+    p.v[KP_PRE_FREQ] = 19700, p.v[KP_DIST_TYPE] = KDT_FOLD;
+    finite_and_done(&p, "the same at 19.7 kHz, FOLD");
+
+    /* a new kick (GABBER at 18 dB, OUT -9 dB) is about as loud as the clean one, and the master keeps it under
+       -0.3 dBFS, pushed or not */
+    {
+        float env = 0.0f;
+        uint32_t beat = KICK_RATE * 60u / 160u;
+        double e0 = 0.0, e1 = 0.0, pk = 0.0;
+        char t[128];
+        neutral(&p);
+        kick_cook(&p, &c);
+        n = kick_render_one(&c, 0, ref, N);
+        kick_params_default(&p);
+        kick_cook(&p, &c);
+        kick_render_one(&c, 0, buf, N);
+        for (i = 0; i < beat; i++) {
+            float r = ref[i] > 1.0f ? 1.0f : ref[i] < -1.0f ? -1.0f : ref[i];
+            e0 += (double)r * r;
+            e1 += (double)buf[i] * buf[i];
+        }
+        snprintf(t, sizeof t, "a new kick's loudness: %.1f dBFS a beat, the clean 909's %.1f",
+                 10.0 * log10(e1 / beat), 10.0 * log10(e0 / beat));
+        check(fabs(10.0 * log10(e1 / e0)) < 2.0, t);
+        p.v[KP_DIST_OUT] = 12;           /* +21 dB: far over */
+        p.v[KP_EQ + KB_N + KB_GAIN] = 30;
+        kick_cook(&p, &c);
+        n = kick_render_one(&c, 0, buf, N);
+        for (i = 0; i < n; i += 256u)
+            kick_master(&env, buf + i, n - i < 256u ? n - i : 256u);
+        for (i = 0; i < n; i++)
+            if (fabs(buf[i]) > pk)
+                pk = fabs(buf[i]);
+        snprintf(t, sizeof t, "the master limiter: a kick 21 dB over comes out at %.2f dBFS (%.7f)", 20.0 * log10(pk), pk);
+        check(pk <= 0.9661, t);
+    }
 
     /* the distortion: transparent at a low push, squashed at a high one */
-    kick_params_default(&p);
+    neutral(&p);
     p.v[KP_LEVEL] = -30;
     kick_cook(&p, &c);
     n = kick_render_one(&c, 0, ref, N);

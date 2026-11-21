@@ -6,10 +6,6 @@ SW.T	sweep time
 P.CUT	pre filter cutoff
 P.RESO	pre filter resonance
 P.DRV	pre filter drive
-F.TYPE	filter type
-F.DRV	filter drive
-ENV.T	envelope time
-KEYTRK	key tracking
 D.TYPE	distortion type
 D.DRV	distortion drive
 GABBER	gabber
