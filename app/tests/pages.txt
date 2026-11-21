@@ -1,6 +1,6 @@
 # The midbody chain's pages: SELECT, the shortcuts (HOME, EDIT, LFO, FX, GLO), turning while PLAY runs, the pictures.
-# Pages: 0 909, 1 PRE, 2 EQ, 3 FILTER, 4 DIST, 5 POST. Parameters: EQ band b (0..7) FREQ 11+3b, GAIN 12+3b, Q 13+3b;
-# FILTER 35..41; DIST 42..46; POST A 47..49, B 50..52.
+# Pages: 0 909, 1 PRE, 2 EQ, 3 FILTER, 4 DIST, 5 POST. Parameters: EQ band b (0..7) FREQ 10+3b, GAIN 11+3b, Q 12+3b;
+# FILTER 34..40; DIST 41..45; POST A 46..48, B 49..51. The EQ page: K1 band, K2 gain, K3 frequency, K4 Q.
 master 4096
 wait 300
 wav chain.wav
@@ -17,32 +17,32 @@ expect band 8
 tap EDIT
 expect band 1
 # band 1 (40 Hz): -30 dB, narrow
-turn K3 -30
-expect p12 -30
+turn K2 -30
+expect p11 -30
 turn K4 40
-expect p13 >250
+expect p12 >250
 # band 2 (80 Hz): down to about 60 Hz, +24 dB, wide
 turn K1 1
 expect band 2
-turn K2 -9
-turn K3 24
-expect p15 24
+turn K3 -9
+turn K2 24
+expect p14 24
 turn K4 -6
 # band 3 (160 Hz): up to about 200 Hz, -30 dB
 turn K1 1
-turn K2 8
-turn K3 -30
-expect p18 -30
+turn K3 8
+turn K2 -30
+expect p17 -30
 # band 6 (1.25 kHz): down to about 840 Hz, a very narrow notch
 turn K1 3
 expect band 6
-turn K2 -13
-turn K3 -30
+turn K3 -13
+turn K2 -30
 turn K4 110
-expect p27 -30
+expect p26 -30
 # band 5 (640 Hz): +15 dB
 turn K1 -1
-turn K3 15
+turn K2 15
 wait 800
 shot eq.png
 # away and back: EDIT returns to the band left
@@ -55,7 +55,7 @@ expect band 5
 tap LFO
 expect page 3
 turn K1 2
-expect p35 3
+expect p34 3
 turn K2 -60
 turn K3 60
 wait 800
@@ -68,20 +68,20 @@ expect page 3
 tap FX
 expect page 4
 turn K1 4
-expect p42 4
+expect p41 4
 turn K2 12
-expect p43 30
+expect p42 30
 wait 800
 shot dist.png
 # GLO: POST; band A down, band B (SEL held) up
 tap GLO
 expect page 5
 turn K2 -9
-expect p48 -9
+expect p47 -9
 press SEL
 turn K2 6
 release SEL
-expect p51 6
+expect p50 6
 wait 800
 shot post.png
 # SELECT still walks every page, and stops at the ends

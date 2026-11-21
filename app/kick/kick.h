@@ -8,7 +8,7 @@
  * the same samples). 1.0 is full scale; inside the engine the signal may go far above it, only the master stops it.
  *
  * The midbody so far:
- *   909 -> PRE (filter with drive) -> EQ (8 peaks) -> FILTER (with drive, envelope, key tracking) -> DIST -> POST (2)
+ *   909 -> PRE (lowpass with drive) -> EQ (8 peaks) -> FILTER (with drive, envelope, key tracking) -> DIST -> POST (2)
  * The 909 is a sine whose pitch falls from a sweep to the root, a click on top, a hold-and-decay envelope. Its two
  * voices (the kick that sounds and the one it cut off, fading) are summed, then the chain runs once on the sum. The
  * filters before the distortion choose what it distorts: that is where the kick's character is made. Every filter is
@@ -34,7 +34,7 @@
 
 /* an EQ band (a peak, as in a parametric EQ: at 0 dB it does nothing): its three parameters, from its first */
 enum { KB_FREQ, KB_GAIN, KB_Q, KB_N };
-/* the PRE's and the FILTER's types */
+/* the FILTER's types */
 enum { KFT_OFF, KFT_LP, KFT_HP, KFT_BP, KFT_NOTCH, KFT_N };
 /* the distortion's types */
 enum { KDT_OFF, KDT_TANH, KDT_HARD, KDT_FOLD, KDT_GABBER, KDT_N };
@@ -48,10 +48,9 @@ enum {
     KP_DECAY,                            /* amplitude: then down to -60 dB in, ms */
     KP_CLICK,                            /* the click on the attack, % */
     KP_LEVEL,                            /* the layer's level, dB */
-    KP_PRE_TYPE,                         /* PRE: KFT_* */
-    KP_PRE_FREQ,                         /* Hz */
+    KP_PRE_FREQ,                         /* PRE, a lowpass: its cutoff, Hz (19.8 kHz: open) */
     KP_PRE_RESO,                         /* % (0: Q 0.71, 100: Q 45) */
-    KP_PRE_DRIVE,                        /* dB into a tanh before the filter; 0: none */
+    KP_PRE_DRIVE,                        /* dB into a tanh before the filter; 0: none (all three neutral: no PRE) */
     KP_EQ,                               /* EQ band b's parameter j: KP_EQ + KB_N * b + j (FREQ Hz, GAIN dB, */
     KP_EQ_END = KP_EQ + KB_N * KICK_EQ_BANDS,   /* Q 1/100) */
     KP_FLT_TYPE = KP_EQ_END,             /* FILTER: KFT_* */
@@ -104,7 +103,7 @@ typedef struct {
     float click;                         /* the click's level */
     float level;                         /* linear */
     int tune;                            /* semitones (the FILTER's key tracking counts from G1) */
-    kick_svf_t pre;
+    kick_svf_t pre;                      /* on: the cutoff below 19.8 kHz, or a resonance */
     float pre_drive;                     /* linear; 0: no drive */
     kick_svf_t eq[KICK_EQ_BANDS];
     kick_svf_t flt;                      /* g at the cutoff, with no envelope and no key tracking */

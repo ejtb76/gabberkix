@@ -32,9 +32,8 @@ static const kick_param_info_t INFO[KP_COUNT] = {
     [KP_DECAY] = {"DECAY", 10, 4000, 450, KU_MS, 0, 0},
     [KP_CLICK] = {"CLICK", 0, 100, 25, KU_PCT, 2, 0},
     [KP_LEVEL] = {"LEVEL", -36, 12, 0, KU_DB, 1, 0},
-    [KP_PRE_TYPE] = {"P.TYPE", 0, KFT_N - 1, KFT_OFF, KU_LIST, 1, FLT_T},
-    [KP_PRE_FREQ] = {"P.FREQ", 20, 19800, 1000, KU_HZ, 0, 0},
-    [KP_PRE_RESO] = {"P.RESO", 0, 100, 30, KU_PCT, 2, 0},
+    [KP_PRE_FREQ] = {"P.CUT", 20, 19800, 19800, KU_HZ, 0, 0},
+    [KP_PRE_RESO] = {"P.RESO", 0, 100, 0, KU_PCT, 2, 0},
     [KP_PRE_DRIVE] = {"P.DRV", 0, 48, 0, KU_DB, 1, 0},
     BAND(KP_EQ + 0 * KB_N, "1", 40),
     BAND(KP_EQ + 1 * KB_N, "2", 80),
@@ -280,7 +279,8 @@ void kick_cook(const kick_params_t *p, kick_coefs_t *c)
     c->click = (float)v[KP_CLICK] * 0.006f;   /* 100 % is a burst at 0.6 */
     c->level = fm_db2lin((float)v[KP_LEVEL]);
     c->tune = v[KP_TUNE];
-    cook_resonant(&c->pre, v[KP_PRE_TYPE], v[KP_PRE_FREQ], v[KP_PRE_RESO]);
+    cook_resonant(&c->pre, KFT_LP, v[KP_PRE_FREQ], v[KP_PRE_RESO]);
+    c->pre.on = v[KP_PRE_FREQ] < INFO[KP_PRE_FREQ].max || v[KP_PRE_RESO] > 0;
     c->pre_drive = v[KP_PRE_DRIVE] ? fm_db2lin((float)v[KP_PRE_DRIVE]) : 0.0f;
     for (b = 0; b < KICK_EQ_BANDS; b++)
         cook_band(&c->eq[b], &v[KP_EQ + KB_N * b]);
@@ -512,11 +512,10 @@ void kick_chain(kick_engine_t *e, const kick_coefs_t *c, float *buf, uint32_t n)
 {
     kick_chain_t *ch = &e->ch;
     int b;
-    if (c->pre.on) {
-        if (c->pre_drive > 0.0f)
-            drive_run(c->pre_drive, buf, n);
+    if (c->pre_drive > 0.0f)
+        drive_run(c->pre_drive, buf, n);
+    if (c->pre.on)
         svf_run(&c->pre, ch->pre, buf, n);
-    }
     for (b = 0; b < KICK_EQ_BANDS; b++)
         if (c->eq[b].on)
             svf_run(&c->eq[b], ch->eq[b], buf, n);

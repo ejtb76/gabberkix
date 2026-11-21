@@ -3,7 +3,7 @@
 **A hardcore kick designer for the M-VAVE FM-1.** A kick in three layers: a midbody for character, a punch for the
 attack and a sub for the low end, pressed into one kick by groups driven hard into clippers.
 
-> **Status: phase 2 of 6, not yet tried on an FM-1.** The midbody is in: a synthesized 909 through a filter with
+> **Status: phase 2 of 6, not yet tried on an FM-1.** The midbody is in: a synthesized 909 through a lowpass with
 > drive, an eight-band parametric EQ, a resonant filter, a distortion and an EQ after it, played on every beat or pitched from the
 > keys and MIDI. Punch, groups, sub and presets follow (`kick-firmware-instructions.md`).
 
@@ -21,7 +21,8 @@ attack, and a hold-then-decay envelope. Everything after it is there to choose w
 boosts and cuts and a screaming resonant filter in front of a clipper make the kick's character; the distortion alone
 gives an oldschool gabber kick.
 
-- **PRE**: a filter (LP, HP, BP, notch) with a drive in front of it.
+- **PRE**: a lowpass with resonance and a drive in front of it. Open, with no resonance and no drive (a new kick's),
+  it does nothing.
 - **EQ**: a parametric EQ of eight peaks, each up to ±30 dB and Q 30: wide boosts and deep, narrow cuts. A new kick
   has them at 0 dB (40 Hz to 5 kHz): they do nothing until their gain moves. There is no low cut on purpose: the lows
   are what a kick is, and what drives the distortion; a low band turned down takes some away.
@@ -58,8 +59,8 @@ The pages' knobs:
 | Page | K1–K4 | SEL held + K1–K4 |
 | --- | --- | --- |
 | **909** | SWEEP (how far above the root the pitch starts, in octaves), SW.T (how fast it falls), HOLD, DECAY (to -60 dB) | TUNE (the root, ±12 semitones from G1), CLICK, LEVEL |
-| **PRE** | P.TYPE, P.FREQ, P.RESO, P.DRV | |
-| **EQ** | BAND (1–8), and its FREQ, GAIN, Q | |
+| **PRE** | P.CUT, P.RESO, P.DRV | |
+| **EQ** | BAND (1–8), and its GAIN, FREQ, Q | |
 | **FILTER** | F.TYPE, CUTOFF, RESO, F.DRV | ENV (octaves), ENV.T (how fast it falls), KEYTRK |
 | **DIST** | D.TYPE, D.DRV, BIAS, OUT | MIX |
 | **POST** | band A: FREQ, GAIN, Q | band B |

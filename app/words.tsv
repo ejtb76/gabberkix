@@ -3,8 +3,7 @@
 # url: https://ejtb76.github.io/gabberkix/words/
 GABBERKIX	gabber kicks
 SW.T	sweep time
-P.TYPE	pre filter type
-P.FREQ	pre filter frequency
+P.CUT	pre filter cutoff
 P.RESO	pre filter resonance
 P.DRV	pre filter drive
 F.TYPE	filter type

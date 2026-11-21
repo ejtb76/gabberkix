@@ -219,7 +219,7 @@ int main(void)
     p.v[KP_EQ + KB_N * 7 + KB_FREQ] = 19800;
     finite_and_done(&p, "eight bands at +30 dB, Q 30 (20 Hz .. 19.8 kHz)");
     kick_params_default(&p);
-    p.v[KP_PRE_TYPE] = KFT_BP, p.v[KP_PRE_RESO] = 100, p.v[KP_PRE_DRIVE] = 48, p.v[KP_PRE_FREQ] = 20;
+    p.v[KP_PRE_RESO] = 100, p.v[KP_PRE_DRIVE] = 48, p.v[KP_PRE_FREQ] = 20;
     p.v[KP_FLT_TYPE] = KFT_LP, p.v[KP_FLT_RESO] = 100, p.v[KP_FLT_DRIVE] = 48, p.v[KP_FLT_FREQ] = 20;
     p.v[KP_FLT_ENV] = 600, p.v[KP_FLT_KEY] = 100;
     p.v[KP_DIST_TYPE] = KDT_GABBER, p.v[KP_DIST_DRIVE] = 60, p.v[KP_DIST_BIAS] = 100;

@@ -7,7 +7,7 @@
  * up).
  *
  * The panel:
- *   SELECT       the page: 909, PRE, EQ, FILTER, DIST, POST
+ *   SELECT       the page: 909, PRE (a lowpass with drive), EQ, FILTER, DIST, POST
  *   HOME         909      EDIT  EQ (again: the next band)            LFO  FILTER (again: PRE, and back)
  *   FX           DIST     GLO   POST
  *   K1..K4       the page's first four parameters; with SEL held, the next four
@@ -29,7 +29,7 @@
 
 /* --------------------------------------------------------------- pages --- */
 /* a page: up to eight parameters, K1..K4 and (SEL held) K1..K4 again; -1 = none. On the EQ page K1 chooses a band
- * (PS_BAND) and K2..K4 are that band's (PS_FREQ..PS_Q). Under them a picture: the kick's first second, the curves
+ * (PS_BAND) and K2..K4 are that band's gain, frequency and Q. Under them a picture: the kick's first second, the curves
  * of the filters before the distortion (each EQ band a dot, its own curve faint, the sum bright), the kick's
  * spectrum, or the spectrum with the POST's curves over it. */
 enum { V_WAVE, V_CURVE, V_SPEC, V_POST };
@@ -46,9 +46,9 @@ enum { PG_909, PG_PRE, PG_EQ, PG_FILTER, PG_DIST, PG_POST };
 static const page_t PAGES[] = {
     [PG_909] = {"909", {KP_SWEEP, KP_SWEEP_T, KP_HOLD, KP_DECAY, KP_TUNE, KP_CLICK, KP_LEVEL, -1}, V_WAVE, {-1, -1},
                 B_HOME},
-    [PG_PRE] = {"PRE", {KP_PRE_TYPE, KP_PRE_FREQ, KP_PRE_RESO, KP_PRE_DRIVE, -1, -1, -1, -1}, V_CURVE,
+    [PG_PRE] = {"PRE", {KP_PRE_FREQ, KP_PRE_RESO, KP_PRE_DRIVE, -1, -1, -1, -1, -1}, V_CURVE,
                 {KP_PRE_FREQ, KP_PRE_FREQ}, B_LFO},
-    [PG_EQ] = {"EQ", {PS_BAND, PS_FREQ, PS_GAIN, PS_Q, -1, -1, -1, -1}, V_CURVE, {-1, -1}, B_EDIT},
+    [PG_EQ] = {"EQ", {PS_BAND, PS_GAIN, PS_FREQ, PS_Q, -1, -1, -1, -1}, V_CURVE, {-1, -1}, B_EDIT},
     [PG_FILTER] = {"FILTER", {KP_FLT_TYPE, KP_FLT_FREQ, KP_FLT_RESO, KP_FLT_DRIVE, KP_FLT_ENV, KP_FLT_ENV_T,
                    KP_FLT_KEY, -1}, V_CURVE, {KP_FLT_FREQ, KP_FLT_FREQ}, B_LFO},
     [PG_DIST] = {"DIST", {KP_DIST_TYPE, KP_DIST_DRIVE, KP_DIST_BIAS, KP_DIST_OUT, KP_DIST_MIX, -1, -1, -1}, V_SPEC,
