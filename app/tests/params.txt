@@ -1,0 +1,28 @@
+# The 909 page: the knobs, SEL for the second row, the picture of the kick
+master 4096
+wait 300
+# row 1: K1 sweep, K2 sweep time, K3 hold, K4 decay
+expect p1 200
+turn K1 4
+expect p1 220
+turn K4 10
+expect p4 >450
+shot decay.png
+# row 2 (SEL held): K1 tune, K2 click, K3 level
+press SEL
+turn K1 3
+release SEL
+expect p0 3
+expect p1 220
+press SEL
+shot row2.png
+turn K2 -20
+release SEL
+expect p5 0
+# the extremes hold
+turn K1 -200
+expect p1 0
+wav params.wav
+tapkey 14
+wait 1200
+wavstop

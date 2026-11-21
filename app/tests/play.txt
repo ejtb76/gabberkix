@@ -1,0 +1,40 @@
+# PLAY, the keys and MIDI in: sh build.sh --host && app/build/host/gabberkix_host app/tests/play.txt build/play
+master 4096
+wav play.wav
+wait 300
+shot start.png
+tap PLAY
+expect playing 1
+wait 3000
+# 160 BPM: a beat every 375 ms, the first at once: 9 in 3 s (0, 375 .. 3000 ms)
+expect kicks >7
+expect semis 0
+tap PLAY
+expect playing 0
+turn PRESET -10
+expect tempo 150
+wait 600
+# the keys: G4 (key 14) the root, G3 (key 2) an octave down, G5 (key 26) an octave up
+key 14 down
+wait 400
+key 14 up
+expect semis 0
+key 2 down
+wait 600
+key 2 up
+expect semis -12
+key 26 down
+wait 400
+key 26 up
+expect semis 12
+# MIDI: note 67 the root; note 31 (G1) folded into an octave down; note 70 three up
+midi 90 43 64
+wait 400
+expect semis 0
+midi 90 1F 64
+wait 600
+expect semis -12
+midi 90 46 64
+wait 400
+expect semis 3
+wavstop

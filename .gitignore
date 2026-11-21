@@ -1,0 +1,5 @@
+build/
+app/build/
+app/web/
+__pycache__/
+.DS_Store
