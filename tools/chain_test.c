@@ -218,8 +218,8 @@ int main(void)
     p.v[KP_PRE_RESO] = 100, p.v[KP_PRE_DRIVE] = 48, p.v[KP_PRE_FREQ] = 20;
     p.v[KP_DIST_TYPE] = KDT_GABBER, p.v[KP_DIST_DRIVE] = 60, p.v[KP_DIST_BIAS] = 100;
     finite_and_done(&p, "PRE at 20 Hz, full resonance and drive, GABBER at 60 dB");
-    p.v[KP_PRE_FREQ] = 19700, p.v[KP_DIST_TYPE] = KDT_FOLD;
-    finite_and_done(&p, "the same at 19.7 kHz, FOLD");
+    p.v[KP_PRE_FREQ] = 19700, p.v[KP_DIST_TYPE] = KDT_HARD;
+    finite_and_done(&p, "the same at 19.7 kHz, HARD");
 
     /* a new kick (GABBER at 18 dB, OUT -9 dB) is about as loud as the clean one, and the master keeps it under
        -0.3 dBFS, pushed or not */

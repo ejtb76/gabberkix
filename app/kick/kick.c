@@ -14,7 +14,7 @@
 #define DC_R 0.99929f                    /* the DC blocker after the distortion: 5 Hz */
 
 /* ------------------------------------------------------------ parameters --- */
-static const char *const DIST_T[KDT_N] = {"OFF", "TANH", "HARD", "FOLD", "GABBER"};
+static const char *const DIST_T[KDT_N] = {"OFF", "TANH", "HARD", "GABBER"};
 
 /* an EQ band, at its first parameter: a gain-0 peak at f (so it does nothing until its GAIN moves), Q 1 */
 #define BAND(at, n, f)                                                                                               \
@@ -225,8 +225,6 @@ static float shape(int type, float u)    /* the distortion's transfer: 1 is wher
         return fm_tanhf(u);
     case KDT_HARD:
         return u > 1.0f ? 1.0f : u < -1.0f ? -1.0f : u;
-    case KDT_FOLD:                       /* a sine folder: unity for a small signal, past pi/2 it folds back, */
-        return fm_sinf(u);               /* again and again */
     case KDT_GABBER: {                   /* a soft stage 12 dB hotter, a square on top (even harmonics, the buzz), */
         float s = fm_tanhf(4.0f * u);    /* then a hard clip */
         s = (s + 0.3f * s * s) * 1.4f;

@@ -26,7 +26,7 @@ gives an oldschool gabber kick.
 - **EQ**: a parametric EQ of eight peaks, each up to ±30 dB and Q 30: wide boosts and deep, narrow cuts. A new kick
   has them at 0 dB (40 Hz to 5 kHz): they do nothing until their gain moves. There is no low cut on purpose: the lows
   are what a kick is, and what drives the distortion; a low band turned down takes some away.
-- **DIST**: TANH (soft), HARD (a hard clip), FOLD (a sine wavefolder) or GABBER (a soft stage 12 dB hotter with a buzz
+- **DIST**: TANH (soft), HARD (a hard clip) or GABBER (a soft stage 12 dB hotter with a buzz
   of even harmonics, into a hard clip); drive up to 60 dB, a bias for asymmetry, out level and dry/wet mix.
 - **POST**: two more peaks, as the EQ's, after the distortion.
 - **The master**: a peak limiter at -0.3 dBFS, then MASTER's volume.

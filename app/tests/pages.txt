@@ -61,12 +61,12 @@ turn K3 12
 expect p9 12
 wait 800
 shot pre.png
-# FX: DIST (GABBER, 18 dB on a new kick): FOLD, more push
+# FX: DIST (GABBER, 18 dB on a new kick): HARD, more push
 tap FX
 expect page 3
-expect p34 4
-turn K1 -1
 expect p34 3
+turn K1 -1
+expect p34 2
 turn K2 12
 expect p35 30
 wait 800

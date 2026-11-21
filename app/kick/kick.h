@@ -36,7 +36,7 @@
 /* an EQ band (a peak, as in a parametric EQ: at 0 dB it does nothing): its three parameters, from its first */
 enum { KB_FREQ, KB_GAIN, KB_Q, KB_N };
 /* the distortion's types */
-enum { KDT_OFF, KDT_TANH, KDT_HARD, KDT_FOLD, KDT_GABBER, KDT_N };
+enum { KDT_OFF, KDT_TANH, KDT_HARD, KDT_GABBER, KDT_N };
 
 /* the parameters, as the player sets them (whole numbers, in the units shown); a preset is this array */
 enum {
