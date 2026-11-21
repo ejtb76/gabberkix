@@ -8,7 +8,7 @@
  * the same samples). 1.0 is full scale; inside the engine the signal may go far above it, only the master stops it.
  *
  * The midbody so far:
- *   909 -> PRE (filter with drive) -> EQ (8 bands) -> FILTER (with drive, envelope, key tracking) -> DIST -> POST (2)
+ *   909 -> PRE (filter with drive) -> EQ (8 peaks) -> FILTER (with drive, envelope, key tracking) -> DIST -> POST (2)
  * The 909 is a sine whose pitch falls from a sweep to the root, a click on top, a hold-and-decay envelope. Its two
  * voices (the kick that sounds and the one it cut off, fading) are summed, then the chain runs once on the sum. The
  * filters before the distortion choose what it distorts: that is where the kick's character is made. Every filter is
@@ -21,7 +21,8 @@
  *   kick_trigger(e, c, semis)            a kick at the root + semis (audio side); the old one fades out
  *   kick_render(e, c, out, n)            n mono samples, written (audio side); the chain follows c at once
  *   kick_render_one(c, semis, out, max)  one whole kick from silence, offline; returns its length in samples
- *   kick_curve(c, what, hz)              the gain of the PRE..FILTER or the POST filters at hz, dB (the screen) */
+ *   kick_curve(c, what, hz)              the gain of the PRE..FILTER or the POST filters at hz, dB (the screen)
+ *   kick_band_db(c, what, b, hz)         one EQ or POST band's gain at hz, dB (the screen) */
 #ifndef KICK_H
 #define KICK_H
 #include <stdint.h>
@@ -31,10 +32,8 @@
 #define KICK_EQ_BANDS 8
 #define KICK_POST_BANDS 2
 
-/* an EQ band's four parameters, from its first */
-enum { KB_TYPE, KB_FREQ, KB_GAIN, KB_Q, KB_N };
-/* an EQ band's types */
-enum { KBT_OFF, KBT_PEAK, KBT_NOTCH, KBT_LOSH, KBT_HISH, KBT_HP, KBT_LP, KBT_BP, KBT_N };
+/* an EQ band (a peak, as in a parametric EQ: at 0 dB it does nothing): its three parameters, from its first */
+enum { KB_FREQ, KB_GAIN, KB_Q, KB_N };
 /* the PRE's and the FILTER's types */
 enum { KFT_OFF, KFT_LP, KFT_HP, KFT_BP, KFT_NOTCH, KFT_N };
 /* the distortion's types */
@@ -53,8 +52,8 @@ enum {
     KP_PRE_FREQ,                         /* Hz */
     KP_PRE_RESO,                         /* % (0: Q 0.71, 100: Q 45) */
     KP_PRE_DRIVE,                        /* dB into a tanh before the filter; 0: none */
-    KP_EQ,                               /* EQ band b's parameter j: KP_EQ + KB_N * b + j (TYPE KBT_*, FREQ Hz, */
-    KP_EQ_END = KP_EQ + KB_N * KICK_EQ_BANDS,   /* GAIN dB, Q 1/100) */
+    KP_EQ,                               /* EQ band b's parameter j: KP_EQ + KB_N * b + j (FREQ Hz, GAIN dB, */
+    KP_EQ_END = KP_EQ + KB_N * KICK_EQ_BANDS,   /* Q 1/100) */
     KP_FLT_TYPE = KP_EQ_END,             /* FILTER: KFT_* */
     KP_FLT_FREQ,                         /* the cutoff, Hz */
     KP_FLT_RESO,                         /* % */
@@ -156,5 +155,6 @@ void kick_chain(kick_engine_t *e, const kick_coefs_t *c, float *buf, uint32_t n)
                                                                                        (the tests' sines) */
 enum { KC_PRE, KC_POST };                /* kick_curve: PRE, EQ and FILTER (what the distortion gets), or POST */
 float kick_curve(const kick_coefs_t *c, int what, float hz);
+float kick_band_db(const kick_coefs_t *c, int what, int band, float hz);   /* KC_PRE: an EQ band; KC_POST: POST's */
 
 #endif

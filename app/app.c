@@ -2,12 +2,13 @@
  * Copyright (C) 2026 Presethead. text_cat, int_text and app_say are from fm1-base's template (template/app.c),
  * Copyright (C) 2026 Charles Vestal, MPL-2.0 (base/LICENSE); the rest is GPL-3.0-only (LICENSE). */
 /* GABBERKIX: a kick designer for the FM-1. The midbody so far: a synthesized 909 through a filter with drive, an
- * eight-band EQ, a resonant filter, a distortion and a two-band EQ after it (app/kick/kick.h), played by PLAY (a kick
- * on every beat at the root, G1) and by the keys and MIDI notes (pitched, an octave down to an octave up).
+ * eight-band parametric EQ, a resonant filter, a distortion and a two-band EQ after it (app/kick/kick.h), played by
+ * PLAY (a kick on every beat at the root, G1) and by the keys and MIDI notes (pitched, an octave down to an octave
+ * up).
  *
  * The panel:
- *   SELECT       the page: 909, PRE, EQ 1-2 .. EQ 7-8, FILTER, DIST, POST
- *   HOME         909      EDIT  EQ (again: the next two bands)      LFO  FILTER (again: PRE, and back)
+ *   SELECT       the page: 909, PRE, EQ, FILTER, DIST, POST
+ *   HOME         909      EDIT  EQ (again: the next band)            LFO  FILTER (again: PRE, and back)
  *   FX           DIST     GLO   POST
  *   K1..K4       the page's first four parameters; with SEL held, the next four
  *   PRESETS      tempo, 60..300 BPM
@@ -27,10 +28,12 @@
 #define BEAT_UNITS (KICK_RATE * 60u)     /* the beat clock: bpm added a frame, a beat at this many */
 
 /* --------------------------------------------------------------- pages --- */
-/* a page: up to eight parameters, K1..K4 and (SEL held) K1..K4 again; -1 = none. Under them a picture: the kick's
- * first second, the curve of the filters before the distortion (a line at the lit row's frequency), the kick's
- * spectrum, or the spectrum with the POST's curve over it. */
+/* a page: up to eight parameters, K1..K4 and (SEL held) K1..K4 again; -1 = none. On the EQ page K1 chooses a band
+ * (PS_BAND) and K2..K4 are that band's (PS_FREQ..PS_Q). Under them a picture: the kick's first second, the curves
+ * of the filters before the distortion (each EQ band a dot, its own curve faint, the sum bright), the kick's
+ * spectrum, or the spectrum with the POST's curves over it. */
 enum { V_WAVE, V_CURVE, V_SPEC, V_POST };
+enum { PS_NONE = -1, PS_BAND = -2, PS_FREQ = -3, PS_GAIN = -4, PS_Q = -5 };
 typedef struct {
     const char *name;
     int8_t p[8];
@@ -38,26 +41,20 @@ typedef struct {
     int8_t mark[2];                      /* the frequency each row's line is at: a parameter, -1 none */
     uint8_t button;                      /* its shortcut, B_*: lit while it shows */
 } page_t;
-#define EQB(b, j) (KP_EQ + KB_N * (b) + (j))
-#define EQ_PAGE(name, b)                                                                                                 {name,                                                                                                                {EQB(b, KB_TYPE), EQB(b, KB_FREQ), EQB(b, KB_GAIN), EQB(b, KB_Q), EQB(b + 1, KB_TYPE), EQB(b + 1, KB_FREQ),           EQB(b + 1, KB_GAIN), EQB(b + 1, KB_Q)},                                                                             V_CURVE, {EQB(b, KB_FREQ), EQB(b + 1, KB_FREQ)}, B_EDIT}
 #define POSTB(b, j) (KP_POST + KB_N * (b) + (j))
-enum { PG_909, PG_PRE, PG_EQ, PG_EQ_LAST = PG_EQ + KICK_EQ_BANDS / 2 - 1, PG_FILTER, PG_DIST, PG_POST };
+enum { PG_909, PG_PRE, PG_EQ, PG_FILTER, PG_DIST, PG_POST };
 static const page_t PAGES[] = {
     [PG_909] = {"909", {KP_SWEEP, KP_SWEEP_T, KP_HOLD, KP_DECAY, KP_TUNE, KP_CLICK, KP_LEVEL, -1}, V_WAVE, {-1, -1},
                 B_HOME},
     [PG_PRE] = {"PRE", {KP_PRE_TYPE, KP_PRE_FREQ, KP_PRE_RESO, KP_PRE_DRIVE, -1, -1, -1, -1}, V_CURVE,
                 {KP_PRE_FREQ, KP_PRE_FREQ}, B_LFO},
-    [PG_EQ + 0] = EQ_PAGE("EQ 1-2", 0),
-    [PG_EQ + 1] = EQ_PAGE("EQ 3-4", 2),
-    [PG_EQ + 2] = EQ_PAGE("EQ 5-6", 4),
-    [PG_EQ + 3] = EQ_PAGE("EQ 7-8", 6),
+    [PG_EQ] = {"EQ", {PS_BAND, PS_FREQ, PS_GAIN, PS_Q, -1, -1, -1, -1}, V_CURVE, {-1, -1}, B_EDIT},
     [PG_FILTER] = {"FILTER", {KP_FLT_TYPE, KP_FLT_FREQ, KP_FLT_RESO, KP_FLT_DRIVE, KP_FLT_ENV, KP_FLT_ENV_T,
                    KP_FLT_KEY, -1}, V_CURVE, {KP_FLT_FREQ, KP_FLT_FREQ}, B_LFO},
     [PG_DIST] = {"DIST", {KP_DIST_TYPE, KP_DIST_DRIVE, KP_DIST_BIAS, KP_DIST_OUT, KP_DIST_MIX, -1, -1, -1}, V_SPEC,
                  {-1, -1}, B_FX},
-    [PG_POST] = {"POST", {POSTB(0, KB_TYPE), POSTB(0, KB_FREQ), POSTB(0, KB_GAIN), POSTB(0, KB_Q), POSTB(1, KB_TYPE),
-                 POSTB(1, KB_FREQ), POSTB(1, KB_GAIN), POSTB(1, KB_Q)}, V_POST, {POSTB(0, KB_FREQ), POSTB(1, KB_FREQ)},
-                 B_GLO},
+    [PG_POST] = {"POST", {POSTB(0, KB_FREQ), POSTB(0, KB_GAIN), POSTB(0, KB_Q), -1, POSTB(1, KB_FREQ),
+                 POSTB(1, KB_GAIN), POSTB(1, KB_Q), -1}, V_POST, {POSTB(0, KB_FREQ), POSTB(1, KB_FREQ)}, B_GLO},
 };
 #define NPAGES ((int)(sizeof PAGES / sizeof PAGES[0]))
 
@@ -188,7 +185,7 @@ static struct {
     uint8_t wave_lo[240], wave_hi[240];  /* the picture: each column's lowest and highest sample, 0..80 */
     uint32_t wave_ms;                    /* the kick's length; 0: longer than the picture's second */
     float spec[SPEC_BINS];               /* the kick's spectrum, dB under its loudest bin */
-    int eq_page;                         /* the EQ page EDIT goes back to */
+    int band;                            /* the EQ band K2..K4 turn on the EQ page, 0..7 */
     uint32_t shown_kicks;
     uint8_t redraw;
 } ui;
@@ -271,10 +268,39 @@ static void key_kick(int semis)              /* main loop: a kick, played by the
     }
 }
 
+static int slot_param(int slot)          /* a slot's parameter: PS_BAND, -1 none, or an index into params */
+{
+    int p = PAGES[ui.page].p[slot];
+    if (p <= PS_FREQ)
+        return KP_EQ + KB_N * ui.band + (PS_FREQ - p);   /* PS_FREQ, PS_GAIN, PS_Q: KB_FREQ, KB_GAIN, KB_Q */
+    return p;
+}
+
+static void band_text(char *t)
+{
+    t[0] = (char)('1' + ui.band);
+    t[1] = 0;
+}
+
+static void band_to(int b)
+{
+    char t[4];
+    ui.band = b < 0 ? 0 : b >= KICK_EQ_BANDS ? KICK_EQ_BANDS - 1 : b;
+    band_text(t);
+    app_say("BAND", t);
+    ui.redraw = 1;
+}
+
 static void param_turn(int slot, int detents)
 {
-    int i = PAGES[ui.page].p[slot];
+    int i = slot_param(slot);
     char t[12];
+    if (i == PS_BAND) {
+        band_to(ui.band + detents);
+        ui.focus = slot;
+        ui.focus_at = plat_ms();
+        return;
+    }
     if (i < 0)
         return;
     params.v[i] = (int16_t)kick_param_step(i, params.v[i], detents);
@@ -291,8 +317,6 @@ static void page_to(int p)
     if (p != ui.page)
         ui.wave_dirty = 1;               /* (a page with a spectrum: it is made with the picture) */
     ui.page = p;
-    if (p >= PG_EQ && p <= PG_EQ_LAST)
-        ui.eq_page = p;
     ui.focus = -1;
     app_say("PAGE", PAGES[p].name);
 }
@@ -319,9 +343,12 @@ static void input(void)
             int p = -1;
             if (k == B_HOME)
                 p = PG_909;
-            else if (k == B_EDIT)
-                p = ui.page >= PG_EQ && ui.page <= PG_EQ_LAST ? (ui.page < PG_EQ_LAST ? ui.page + 1 : PG_EQ)
-                                                              : ui.eq_page;
+            else if (k == B_EDIT) {
+                if (ui.page == PG_EQ)            /* on the EQ page: the next band */
+                    band_to((ui.band + 1) % KICK_EQ_BANDS);
+                else
+                    p = PG_EQ;
+            }
             else if (k == B_LFO)
                 p = ui.page == PG_FILTER ? PG_PRE : PG_FILTER;
             else if (k == B_FX)
@@ -451,16 +478,50 @@ static void spec_draw(uint16_t color)
     }
 }
 
-static void curve_draw(int what, uint16_t color)
+static void curve_draw(int what, uint16_t color)   /* the sum: PRE, EQ and FILTER, or POST */
 {
     const kick_coefs_t *c = &coefs[coefs_cur];
     int32_t x, py = db_y(kick_curve(c, what, COL_HZ(0)));
-    cv_rect(0, 12 + WAVE_H / 2 - 1, 240, 1, C_DIM);   /* 0 dB */
     for (x = 0; x < 240; x++) {
         int32_t y = db_y(kick_curve(c, what, COL_HZ(x)));
         int32_t y0 = y < py ? y : py, y1 = y < py ? py : y;
         cv_rect(x, 12 + y0, 1, y1 - y0 + 1, color);
+        if (x > 0 && y1 - y0 > 1)        /* steep: two pixels wide, so a narrow notch still shows */
+            cv_rect(x - 1, 12 + y0, 1, y1 - y0 + 1, color);
         py = y;
+    }
+}
+
+/* the bands, as an EQ plugin draws them: each its own faint curve (where it is away from 0 dB) and a dot at its
+ * frequency and gain, the band the knobs turn lit and numbered */
+static void bands_draw(int what, int sel)
+{
+    const kick_coefs_t *c = &coefs[coefs_cur];
+    int nb = what == KC_POST ? KICK_POST_BANDS : KICK_EQ_BANDS, b;
+    int base = what == KC_POST ? KP_POST : KP_EQ;
+    int32_t x;
+    for (b = 0; b < nb; b++) {
+        if (!params.v[base + KB_N * b + KB_GAIN])
+            continue;
+        for (x = 0; x < 240; x++) {
+            float db = kick_band_db(c, what, b, COL_HZ(x));
+            if (db > 0.3f || db < -0.3f)
+                cv_rect(x, 12 + db_y(db), 1, 1, b == sel ? C_GRAY : C_LINE);
+        }
+    }
+    for (b = 0; b < nb; b++) {
+        const int16_t *v = &params.v[base + KB_N * b];
+        int32_t px = hz_x((float)v[KB_FREQ]), py = db_y((float)v[KB_GAIN]);
+        char t[2];
+        t[0] = what == KC_POST ? (char)('A' + b) : (char)('1' + b);
+        t[1] = 0;
+        if (b == sel) {
+            cv_rect(px - 3, 12 + py - 3, 7, 7, C_AMB);
+            cv_text(px + 5, 12 + (py > 12 ? py - 12 : py + 4), &FONT_XS, t, C_AMB);
+        } else {
+            cv_rect(px - 2, 12 + py - 2, 5, 5, C_GRAY);
+            cv_text(px + 4, 12 + (py > 12 ? py - 11 : py + 3), &FONT_XS, t, C_DIM);
+        }
     }
 }
 
@@ -497,13 +558,18 @@ static void draw(void)
     cv_text(150, 4, &FONT_XS, row ? "SEL: ROW 2" : "ROW 1", C_DIM);
     for (i = 0; i < 8u; i++) {
         int32_t x = 4 + (int32_t)(i % 4u) * 59, y = 20 + (int32_t)(i / 4u) * 34;
-        int p = pg->p[i], lit = (int)(i / 4u) == row;
+        int p = slot_param((int)i), lit = (int)(i / 4u) == row;
         int focus = ui.focus == (int)i && now - ui.focus_at < 1500u;
         cv_rect(x, y, 56, 31, focus ? C_AMB : lit ? C_LINE : C_BLACK);
-        if (p < 0)
+        if (p == PS_BAND) {
+            cv_text(x + 4, y + 2, &FONT_XS, "BAND", focus ? C_BLACK : lit ? C_GRAY : C_DIM);
+            band_text(t);
+        } else if (p < 0) {
             continue;
-        cv_text(x + 4, y + 2, &FONT_XS, kick_param_info(p)->name, focus ? C_BLACK : lit ? C_GRAY : C_DIM);
-        kick_param_text(p, params.v[p], t);
+        } else {
+            cv_text(x + 4, y + 2, &FONT_XS, kick_param_info(p)->name, focus ? C_BLACK : lit ? C_GRAY : C_DIM);
+            kick_param_text(p, params.v[p], t);
+        }
         cv_text(x + 4, y + 15, &FONT_XS, t, focus ? C_BLACK : lit ? C_HI : C_DIM);
     }
     cv_blit(0, 30);
@@ -513,7 +579,9 @@ static void draw(void)
     switch (pg->view) {
     case V_CURVE:
         freq_grid();
+        cv_rect(0, 12 + WAVE_H / 2 - 1, 240, 1, C_DIM);   /* 0 dB */
         mark_draw(row);
+        bands_draw(KC_PRE, ui.page == PG_EQ ? ui.band : -1);
         curve_draw(KC_PRE, C_HI);
         break;
     case V_SPEC:
@@ -523,7 +591,8 @@ static void draw(void)
     case V_POST:
         freq_grid();
         spec_draw(C_LINE);
-        mark_draw(row);
+        cv_rect(0, 12 + WAVE_H / 2 - 1, 240, 1, C_DIM);
+        bands_draw(KC_POST, row);
         curve_draw(KC_POST, C_HI);
         break;
     default:
@@ -556,7 +625,6 @@ void app_ui_init(void)
 {
     lcd_fill(0, 0, 240, 240, C_BLACK);
     ui.focus = -1;
-    ui.eq_page = PG_EQ;
     ui.wave_dirty = 1;
     ui.redraw = 1;
 }
@@ -603,6 +671,8 @@ int app_expect(const char *what, int *got)
         *got = last_semis;
     else if (!strcmp(what, "page"))
         *got = ui.page;
+    else if (!strcmp(what, "band"))
+        *got = ui.band + 1;
     else if (what[0] == 'p' && what[1] >= '0' && what[1] <= '9')
         *got = params.v[atoi(what + 1) % KP_COUNT];
     else

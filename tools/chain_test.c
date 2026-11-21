@@ -16,15 +16,10 @@
 static float buf[N], ref[N];
 static int fails;
 
-static void neutral(kick_params_t *p)    /* every filter and the distortion off */
+static void neutral(kick_params_t *p)    /* every filter and the distortion off (the bands are at 0 dB) */
 {
-    int b;
     kick_params_default(p);
     p->v[KP_FLT_TYPE] = KFT_OFF;
-    for (b = 0; b < KICK_EQ_BANDS; b++)
-        p->v[KP_EQ + KB_N * b + KB_TYPE] = KBT_OFF;
-    for (b = 0; b < KICK_POST_BANDS; b++)
-        p->v[KP_POST + KB_N * b + KB_TYPE] = KBT_OFF;
 }
 
 static double sine_gain_db(const kick_coefs_t *c, double hz)   /* the chain's gain for a steady sine, measured */
@@ -52,8 +47,8 @@ static void check(int ok, const char *what)
         fails++;
 }
 
-/* one band of the EQ at type/f/gain/q: measured against kick_curve at a few frequencies */
-static void band_check(int type, int f, int gain, int q)
+/* one band of the EQ at f/gain/q: measured against kick_curve at a few frequencies */
+static void band_check(int f, int gain, int q)
 {
     static const double AT[] = {30.0, 49.0, 100.0, 250.0, 600.0, 1000.0, 1500.0, 4000.0, 12000.0};
     kick_params_t p;
@@ -62,7 +57,6 @@ static void band_check(int type, int f, int gain, int q)
     double worst = 0.0;
     uint32_t i;
     neutral(&p);
-    p.v[KP_EQ + KB_TYPE] = (int16_t)type;
     p.v[KP_EQ + KB_FREQ] = (int16_t)f;
     p.v[KP_EQ + KB_GAIN] = (int16_t)gain;
     p.v[KP_EQ + KB_Q] = (int16_t)q;
@@ -75,9 +69,7 @@ static void band_check(int type, int f, int gain, int q)
         if (d > worst)
             worst = d;
     }
-    kick_param_text(KP_EQ + KB_TYPE, type, what);
-    snprintf(what + strlen(what), sizeof what - strlen(what), " %d Hz %+d dB Q %.2f: curve = sound (worst %.2f dB)",
-             f, gain, q / 100.0, worst);
+    snprintf(what, sizeof what, "PEAK %d Hz %+d dB Q %.2f: curve = sound (worst %.2f dB)", f, gain, q / 100.0, worst);
     check(worst < 0.5, what);
 }
 
@@ -158,29 +150,50 @@ int main(void)
     kick_init();
 
     /* the curve is the sound */
-    band_check(KBT_PEAK, 1000, 18, 100);
-    band_check(KBT_PEAK, 250, -24, 1500);
-    band_check(KBT_PEAK, 49, 30, 300);   /* (a boost's poles sit at Q times the gain: +30 dB at Q 30 is Q 170, which
+    band_check(1000, 18, 100);
+    band_check(250, -24, 1500);
+    band_check(49, 30, 300);   /* (a boost's poles sit at Q times the gain: +30 dB at Q 30 is Q 170, which
                                             takes seconds to swing up; this one settles in the window) */
-    band_check(KBT_PEAK, 49, -30, 3000);
-    band_check(KBT_NOTCH, 600, 0, 300);
-    band_check(KBT_LOSH, 200, 12, 71);
-    band_check(KBT_HISH, 4000, -15, 71);
-    band_check(KBT_HP, 100, 0, 71);
-    band_check(KBT_LP, 1500, 0, 500);
-    band_check(KBT_BP, 600, 0, 200);
+    band_check(49, -30, 3000);
+    band_check(820, -30, 2500);          /* a notch as narrow as an EQ plugin's */
+    band_check(3600, -26, 400);
+    band_check(60, 24, 80);
     resonant_check(KFT_LP, 1000, 0);
     resonant_check(KFT_LP, 1000, 80);
     resonant_check(KFT_HP, 400, 50);
     resonant_check(KFT_BP, 1250, 60);
     resonant_check(KFT_NOTCH, 800, 30);
 
+    /* the band curves add up to the curve (what the screen draws: each band, and their sum) */
+    {
+        static const int F[8] = {41, 59, 205, 368, 455, 840, 3600, 6680}, G[8] = {-30, 24, -30, 10, 15, -30, -26, -2};
+        static const int Q[8] = {300, 80, 400, 300, 70, 2500, 400, 100};
+        double worst = 0.0, hz;
+        neutral(&p);
+        for (b = 0; b < KICK_EQ_BANDS; b++) {
+            p.v[KP_EQ + KB_N * b + KB_FREQ] = (int16_t)F[b];
+            p.v[KP_EQ + KB_N * b + KB_GAIN] = (int16_t)G[b];
+            p.v[KP_EQ + KB_N * b + KB_Q] = (int16_t)Q[b];
+        }
+        kick_cook(&p, &c);
+        for (hz = 20.0; hz < 19000.0; hz *= 1.07) {
+            double sum = 0.0;
+            for (b = 0; b < KICK_EQ_BANDS; b++)
+                sum += kick_band_db(&c, KC_PRE, b, (float)hz);
+            if (fabs(sum - kick_curve(&c, KC_PRE, (float)hz)) > worst)
+                worst = fabs(sum - kick_curve(&c, KC_PRE, (float)hz));
+        }
+        check(worst < 0.01, "eight bands as in an EQ plugin: the bands' curves add up to the sum's");
+    }
     /* gain 0 everywhere (the default bands): what goes in comes out */
     neutral(&p);
+    for (b = 0; b < KICK_EQ_BANDS; b++)  /* (a band at 0 dB is skipped: a different Q changes nothing) */
+        p.v[KP_EQ + KB_N * b + KB_Q] = 3000;
     kick_cook(&p, &c);
     n = kick_render_one(&c, 0, ref, N);
-    kick_params_default(&p);
-    p.v[KP_FLT_TYPE] = KFT_OFF;
+    neutral(&p);
+    p.v[KP_EQ + KB_GAIN] = 1;            /* one band on and back: no state left */
+    p.v[KP_EQ + KB_GAIN] = 0;
     kick_cook(&p, &c);
     kick_render_one(&c, 0, buf, N);
     {
@@ -188,7 +201,7 @@ int main(void)
         for (i = 0; i < n; i++)
             if (fabs(buf[i] - ref[i]) > d)
                 d = fabs(buf[i] - ref[i]);
-        check(d == 0.0, "the default EQ (peaks at 0 dB) passes the 909 unchanged");
+        check(d == 0.0, "the EQ at 0 dB passes the 909 unchanged");
     }
     kick_params_default(&p);
     kick_cook(&p, &c);

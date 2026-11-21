@@ -15,13 +15,11 @@
 #define DC_R 0.99929f                    /* the DC blocker after the distortion: 5 Hz */
 
 /* ------------------------------------------------------------ parameters --- */
-static const char *const BAND_T[KBT_N] = {"OFF", "PEAK", "NOTCH", "LO.SH", "HI.SH", "HP", "LP", "BP"};
 static const char *const FLT_T[KFT_N] = {"OFF", "LP", "HP", "BP", "NOTCH"};
 static const char *const DIST_T[KDT_N] = {"OFF", "TANH", "HARD", "FOLD", "GABBER"};
 
 /* an EQ band, at its first parameter: a gain-0 peak at f (so it does nothing until its GAIN moves), Q 1 */
 #define BAND(at, n, f)                                                                                               \
-    [(at) + KB_TYPE] = {"TYPE" n, 0, KBT_N - 1, KBT_PEAK, KU_LIST, 1, BAND_T},                                       \
     [(at) + KB_FREQ] = {"FREQ" n, 20, 19800, f, KU_HZ, 0, 0},                                                        \
     [(at) + KB_GAIN] = {"GAIN" n, -30, 30, 0, KU_DB, 1, 0},                                                          \
     [(at) + KB_Q] = {"Q" n, 10, 3000, 100, KU_Q, 0, 0}
@@ -235,52 +233,18 @@ static void cook_resonant(kick_svf_t *s, int type, int hz, int reso)
     svf_update(s);
 }
 
-/* an EQ band (the shelves' and the peak's forms: Andrew Simper, "Linear trapezoidal integrated SVF", 2013) */
+/* an EQ band: a peak, +-db at f, its width Q (Andrew Simper, "Linear trapezoidal integrated SVF", 2013). At 0 dB it
+ * passes the signal unchanged and is skipped. */
 static void cook_band(kick_svf_t *s, const int16_t *b)
 {
-    int type = b[KB_TYPE];
-    float q = (float)b[KB_Q] * 0.01f, db = (float)b[KB_GAIN];
-    float a = fm_db2lin(db * 0.5f);      /* sqrt of the gain */
-    float g = fm_tanf(FM_PI * clamp_f((float)b[KB_FREQ]) / (float)KICK_RATE);
-    s->on = 1;
-    s->k = 1.0f / q;
-    s->m0 = 1.0f, s->m1 = 0.0f, s->m2 = 0.0f;
-    switch (type) {
-    case KBT_PEAK:                       /* +-db at f, its width Q */
-        s->k = 1.0f / (q * a);
-        s->m1 = s->k * (a * a - 1.0f);
-        s->on = b[KB_GAIN] != 0;
-        break;
-    case KBT_NOTCH:
-        s->m1 = -s->k;
-        break;
-    case KBT_LOSH:                       /* +-db below f */
-        g /= fm_sqrtf(a);
-        s->m1 = s->k * (a - 1.0f);
-        s->m2 = a * a - 1.0f;
-        s->on = b[KB_GAIN] != 0;
-        break;
-    case KBT_HISH:                       /* +-db above f */
-        g *= fm_sqrtf(a);
-        s->m0 = a * a;
-        s->m1 = s->k * (1.0f - a) * a;
-        s->m2 = 1.0f - a * a;
-        s->on = b[KB_GAIN] != 0;
-        break;
-    case KBT_HP:
-        s->m1 = -s->k, s->m2 = -1.0f;
-        break;
-    case KBT_LP:
-        s->m0 = 0.0f, s->m2 = 1.0f;
-        break;
-    case KBT_BP:                         /* 0 dB at f */
-        s->m0 = 0.0f, s->m1 = s->k;
-        break;
-    default:                             /* KBT_OFF */
-        s->on = 0;
-        break;
-    }
-    s->g = g;
+    float q = (float)b[KB_Q] * 0.01f;
+    float a = fm_db2lin((float)b[KB_GAIN] * 0.5f);   /* sqrt of the gain */
+    s->on = b[KB_GAIN] != 0;
+    s->g = fm_tanf(FM_PI * clamp_f((float)b[KB_FREQ]) / (float)KICK_RATE);
+    s->k = 1.0f / (q * a);
+    s->m0 = 1.0f;
+    s->m1 = s->k * (a * a - 1.0f);
+    s->m2 = 0.0f;
     svf_update(s);
 }
 
@@ -347,6 +311,12 @@ static float svf_db(const kick_svf_t *s, float t)   /* t = tan(pi hz / rate) */
     if (num < 1e-12f * den)
         return -120.0f;
     return 3.01029996f * fm_log2f(num / den);      /* 10 log10 = 3.01 log2 */
+}
+
+float kick_band_db(const kick_coefs_t *c, int what, int band, float hz)
+{
+    const kick_svf_t *s = what == KC_POST ? &c->post[band] : &c->eq[band];
+    return s->on ? svf_db(s, fm_tanf(FM_PI * clamp_f(hz) / (float)KICK_RATE)) : 0.0f;
 }
 
 float kick_curve(const kick_coefs_t *c, int what, float hz)

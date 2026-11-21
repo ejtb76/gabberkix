@@ -1,40 +1,61 @@
-# The midbody chain's pages: SELECT, the shortcuts (HOME, EDIT, LFO, FX, GLO), turning while PLAY runs, the pictures
+# The midbody chain's pages: SELECT, the shortcuts (HOME, EDIT, LFO, FX, GLO), turning while PLAY runs, the pictures.
+# Pages: 0 909, 1 PRE, 2 EQ, 3 FILTER, 4 DIST, 5 POST. Parameters: EQ band b (0..7) FREQ 11+3b, GAIN 12+3b, Q 13+3b;
+# FILTER 35..41; DIST 42..46; POST A 47..49, B 50..52.
 master 4096
 wait 300
 wav chain.wav
 tap PLAY
 wait 400
-# EDIT: EQ 1-2 (page 2); again: EQ 3-4, ... EQ 7-8, and round to EQ 1-2
+# EDIT: the EQ page, band 1; again: the next band, round from 8 to 1
 tap EDIT
 expect page 2
+expect band 1
 tap EDIT
-expect page 3
+expect band 2
+turn K1 10
+expect band 8
 tap EDIT
-tap EDIT
-expect page 5
-tap EDIT
-expect page 2
-# band 1 (row 1): +18 dB, Q up; band 2 (SEL held): its gain down
-turn K3 18
-expect p13 18
-turn K4 30
-expect p14 >100
-press SEL
-turn K3 -12
-release SEL
-expect p17 -12
+expect band 1
+# band 1 (40 Hz): -30 dB, narrow
+turn K3 -30
+expect p12 -30
+turn K4 40
+expect p13 >250
+# band 2 (80 Hz): down to about 60 Hz, +24 dB, wide
+turn K1 1
+expect band 2
+turn K2 -9
+turn K3 24
+expect p15 24
+turn K4 -6
+# band 3 (160 Hz): up to about 200 Hz, -30 dB
+turn K1 1
+turn K2 8
+turn K3 -30
+expect p18 -30
+# band 6 (1.25 kHz): down to about 840 Hz, a very narrow notch
+turn K1 3
+expect band 6
+turn K2 -13
+turn K3 -30
+turn K4 110
+expect p27 -30
+# band 5 (640 Hz): +15 dB
+turn K1 -1
+turn K3 15
 wait 800
-shot eq12.png
-# away and back: EDIT returns to the EQ page left
+shot eq.png
+# away and back: EDIT returns to the band left
 tap HOME
 expect page 0
 tap EDIT
 expect page 2
-# LFO: FILTER (page 6), again: PRE (1), again: FILTER
+expect band 5
+# LFO: FILTER, again: PRE, again: FILTER
 tap LFO
-expect page 6
+expect page 3
 turn K1 2
-expect p43 3
+expect p35 3
 turn K2 -60
 turn K3 60
 wait 800
@@ -42,30 +63,34 @@ shot filter.png
 tap LFO
 expect page 1
 tap LFO
-expect page 6
-# FX: DIST (7); a type, a push
+expect page 3
+# FX: DIST; a type, a push
 tap FX
-expect page 7
+expect page 4
 turn K1 4
-expect p50 4
+expect p42 4
 turn K2 12
-expect p51 30
+expect p43 30
 wait 800
 shot dist.png
-# GLO: POST (8)
+# GLO: POST; band A down, band B (SEL held) up
 tap GLO
-expect page 8
-turn K3 -9
-expect p57 -9
+expect page 5
+turn K2 -9
+expect p48 -9
+press SEL
+turn K2 6
+release SEL
+expect p51 6
 wait 800
 shot post.png
 # SELECT still walks every page, and stops at the ends
 turn SELECT -20
 expect page 0
-turn SELECT 3
-expect page 3
+turn SELECT 2
+expect page 2
 turn SELECT 20
-expect page 8
+expect page 5
 tap PLAY
 expect playing 0
 wait 600
