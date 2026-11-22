@@ -81,9 +81,9 @@ enum {
     KP_P_SRC = KP_POST + KB_N * KICK_POST_BANDS,   /* the punch (phase 3): its source, KPS_* */
     KP_P_TUNE,                           /* the source played this far from the kick, semitones */
     KP_P_HOLD,                           /* the gate: open, ms */
-    KP_P_DECAY,                          /* then closed (to -60 dB) in, ms */
+    KP_P_DECAY,                          /* then closed (to -60 dB) in, ms (1..200) */
     KP_P_DRIVE,                          /* a hard clip, dB in; 0: none */
-    KP_P_LEVEL,                          /* the punch's level, dB */
+    KP_P_LEVEL,                          /* the punch's level, dB (GAIN on the screen) */
     KP_PEQ,                              /* P.EQ band b: KP_PEQ + KB_N * b + j */
     KP_AEQ = KP_PEQ + KB_N * KICK_PEQ_BANDS,   /* group A's EQ */
     KP_A_PUSH = KP_AEQ + KB_N * KICK_AEQ_BANDS,   /* group A: into the clipper, dB */

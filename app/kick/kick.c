@@ -62,9 +62,9 @@ static const kick_param_info_t INFO[KP_COUNT] = {
     [KP_P_SRC] = {"SRC", 0, KPS_N - 1, KPS_SELF, KU_LIST, 1, SRC_T},
     [KP_P_TUNE] = {"P.TUNE", -24, 24, 0, KU_ST, 1, 0},
     [KP_P_HOLD] = {"P.HOLD", 0, 20, 0, KU_MS, 1, 0},
-    [KP_P_DECAY] = {"P.DECAY", 1, 50, 8, KU_MS, 1, 0},
+    [KP_P_DECAY] = {"P.DECAY", 1, 200, 8, KU_MS, 0, 0},   /* 1 ms a detent at first, longer by 3 % on */
     [KP_P_DRIVE] = {"P.DRV", 0, 36, 0, KU_DB, 1, 0},
-    [KP_P_LEVEL] = {"P.LEVEL", -36, 24, 6, KU_DB, 1, 0},
+    [KP_P_LEVEL] = {"P.GAIN", -36, 24, 6, KU_DB, 1, 0},
     BAND(KP_PEQ + 0 * KB_N, "P.1", 200),
     BAND(KP_PEQ + 1 * KB_N, "P.2", 800),
     BAND(KP_PEQ + 2 * KB_N, "P.3", 2500),
@@ -667,8 +667,12 @@ static void kit_block(kick_kit_t *k, const kick_coefs_t *c, float *out, uint32_t
     int awake = kick_kit_sounding(k);
     k->mid.tap = k->tap == KT_D1 || k->tap == KT_D2 ? k->tap : KT_ALL;
     kick_render(&k->mid, c, out, n);
-    if (k->tap != KT_ALL && !kick_sounding(&k->mid) && k->gate <= 0.0f && k->p_quiet >= QUIET_SAMPLES)
-        k->quiet = QUIET_SAMPLES;        /* a tap: done when its layers are (group A is not heard) */
+    if (k->tap == KT_PUNCH ? k->gate <= 0.0f && k->p_quiet >= QUIET_SAMPLES   /* a tap: done when what it */
+        : k->tap != KT_ALL && !kick_sounding(&k->mid)) {                       /* hears is (the punch, or */
+        k->quiet = QUIET_SAMPLES;                                              /* the midbody) */
+        k->gate = 0.0f;
+        k->p_quiet = QUIET_SAMPLES;
+    }
     if (k->tap == KT_D1 || k->tap == KT_D2 || k->tap == KT_MID)
         return;
     if (punch_run(k, c, n)) {
@@ -801,12 +805,13 @@ int kick_randomize(kick_params_t *p, uint32_t *seed)
         dice_eq(&q, KE_EQ2, 100, 8000, seed);  /* the overtones it made */
         dice_dist(&q, KP_D2, 0, 15, seed);     /* milder: a heavy last clip would flatten what the EQs did */
         if (dice_in(seed, 0, 3) == 0)          /* the punch: none, one time in four; else another tick (from */
-            q.v[KP_P_SRC] = KPS_OFF;           /* the preset it was from, or this kick; group A stays) */
+            q.v[KP_P_SRC] = KPS_OFF;           /* the preset it was from, or this kick; DRIVE and group A stay) */
         else if (q.v[KP_P_SRC] == KPS_OFF)
             q.v[KP_P_SRC] = KPS_SELF;
         q.v[KP_P_TUNE] = (int16_t)dice_in(seed, -12, 12);
         q.v[KP_P_HOLD] = (int16_t)dice_in(seed, 0, 10);
-        q.v[KP_P_DECAY] = (int16_t)dice_in(seed, 3, 30);
+        q.v[KP_P_DECAY] = (int16_t)dice_in(seed, 1, 200);   /* its whole range, each length as likely */
+        q.v[KP_P_LEVEL] = (int16_t)dice_in(seed, -6, 12);   /* GAIN: from a hint to well on top */
         dice_eq(&q, KE_PEQ, 300, 10000, seed);
         for (k = 0; k < 3; k++) {              /* DIST2's OUT to a new kick's loudness */
             int out = q.v[KP_D2 + KD_OUT], to;

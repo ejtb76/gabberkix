@@ -1,7 +1,7 @@
 # The midbody chain's pages: SELECT, the shortcuts (HOME, EDIT, FX, LFO, GLO), turning while PLAY runs, the pictures.
 # Pages: 0 909, 1 EQ, 2 D1, 3 EQ2, 4 D2, 5 POST, 6 PNCH, 7 P.EQ, 8 GRP.A. Parameters: EQ band b (0..3) FREQ 7+3b, GAIN 8+3b, Q 9+3b;
 # DIST1 19..23 (TYPE DRIVE BIAS OUT MIX); EQ2 band b (0..3) FREQ 24+3b, GAIN 25+3b, Q 26+3b; DIST2 36..40;
-# POST A 41..43, B 44..46; PNCH 47..52 (SRC TUNE HOLD DECAY DRIVE LEVEL); P.EQ 53..64; GRP.A's EQ 65..76, PUSH 77,
+# POST A 41..43, B 44..46; PNCH 47..52 (SRC TUNE HOLD DECAY DRIVE GAIN); P.EQ 53..64; GRP.A's EQ 65..76, PUSH 77,
 # CLIP 78, OUT 79. An EQ page: K1 band, K2 gain, K3 Q, K4 frequency.
 master 4096
 wait 300
@@ -93,14 +93,21 @@ turn K1 -1
 expect pband 1
 wait 800
 shot post.png
-# ENV: PNCH (SELF on a new kick); a shorter tick, a fifth up; ENV again: P.EQ; again: PNCH
+# ENV: PNCH (SELF on a new kick); GAIN down, a fifth up (TUNE, row 2), a shorter tick, then a long one; ENV again:
+# P.EQ; again: PNCH
 tap ENV
 expect page 6
 expect p47 1
+turn K2 -9
+expect p52 -3
+press SEL
 turn K2 7
+release SEL
 expect p48 7
 turn K4 -3
 expect p50 5
+turn K4 40
+expect p50 >40
 wait 800
 shot punch.png
 tap ENV

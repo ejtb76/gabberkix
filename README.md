@@ -35,8 +35,9 @@ leaves the EQs more to do.
 - **POST**: two more peaks, after them.
 - **PNCH**, the punch: the hard tick at the start of a kick, as a finished kick's first milliseconds. SRC is where it
   comes from: SELF (this kick) or a preset (P1–P16, with its own EQs and distortions: "a kick I made earlier"), or
-  OFF. P.TUNE plays the source higher or lower (a sharper or duller tick), the gate (P.HOLD, then P.DECAY to -60 dB)
-  keeps only its first milliseconds, P.DRV clips it (allowed, and meant), P.LEVEL lifts it up to +24 dB.
+  OFF. P.GAIN sets how loud the tick is (-36 to +24 dB), the gate (P.HOLD, then P.DECAY to -60 dB in 1–200 ms) how
+  much of the kick's start it keeps, P.DRV clips it (allowed, and meant), P.TUNE plays the source higher or lower (a
+  sharper or duller tick).
 - **P.EQ**: four peaks on the punch, to make it fit the kick.
 - **GRP.A**, group A: the midbody and the punch summed, an EQ of four peaks, then a brickwall clipper: PUSH drives the
   sum into it (HARD, or SOFT: straight to half scale, then bent), OUT after it. At no push it does next to nothing; far
@@ -47,8 +48,8 @@ leaves the EQs more to do.
 boosts wide (9–24 dB); EQ's bands between 30 Hz and 1 kHz, where they steer the first distortion, EQ2's between 100 Hz
 and 8 kHz. Each distortion gets a type, a drive (DIST1 6–30 dB, DIST2 milder, 0–15 dB) and now and then a bias. The
 909 gets a SWEEP of 1–5 octaves, a CLICK of 0–80 % and a DECAY of 200–900 ms, every length as likely (its TUNE, SW.T,
-HOLD and LEVEL stay, and so does POST). The punch is off one time in four; else it gets a P.TUNE of ±12, a P.HOLD of 0–10 ms, a P.DECAY of 3–30 ms and
-its own curve on P.EQ (its SRC, P.DRV and P.LEVEL stay, and so does group A). Then the kick is rendered once,
+HOLD and LEVEL stay, and so does POST). The punch is off one time in four; else it gets a P.GAIN of -6 to +12 dB, a P.HOLD of 0–10 ms, a P.DECAY of 1–200
+ms (every length as likely), a P.TUNE of ±12 and its own curve on P.EQ (its SRC and P.DRV stay, and so does group A). Then the kick is rendered once,
 measured after the limiter, and DIST2's OUT set so it is as loud as a new kick: never soft, never silent. SEL + ARP
 takes the last throw back.
 
@@ -92,7 +93,7 @@ The pages' knobs:
 | **909** | SWEEP (how far above the root the pitch starts, in octaves), SW.T (how fast it falls), HOLD, DECAY (to -60 dB) | TUNE (the root, ±12 semitones from G1), CLICK, LEVEL |
 | **EQ**, **EQ2**, **POST**, **P.EQ** | BAND (1–4, 1–4, A–B, 1–4), and its GAIN, Q, FREQ | |
 | **D1**, **D2** | TYPE, DRIVE, BIAS, OUT | MIX |
-| **PNCH** | SRC, P.TUNE, P.HOLD, P.DECAY | P.DRV, P.LEVEL |
+| **PNCH** | SRC, P.GAIN, P.HOLD, P.DECAY | P.DRV, P.TUNE |
 | **GRP.A** | BAND (1–4), and its GAIN, Q, FREQ | PUSH, CLIP, A.OUT |
 
 Along the top, the pages as tabs, the one shown lit; each page has its own colour (909 red, EQ cyan, D1 magenta,

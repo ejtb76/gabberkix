@@ -16,6 +16,6 @@ P.TUNE	punch tune
 P.HOLD	punch hold
 P.DECAY	punch decay
 P.DRV	punch drive
-P.LEVEL	punch level
+P.GAIN	punch gain
 A.OUT	group A out
 SRC	source

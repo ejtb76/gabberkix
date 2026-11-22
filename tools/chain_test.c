@@ -397,7 +397,7 @@ int main(void)
     {
         uint32_t seed = 12345u;
         int k, soft = 0, loud = 0, tame = 0, throws = 0, most = 0, shorter = 0, unpunched = 0;
-        long decay = 0;
+        long decay = 0, pdecay = 0;
         float lo = 0.0f, hi = -120.0f;
         char t[256];
         for (k = 0; k < 300; k++) {
@@ -416,6 +416,10 @@ int main(void)
                 hi = db;
             decay += p.v[KP_DECAY];
             unpunched += p.v[KP_P_SRC] == KPS_OFF;
+            pdecay += p.v[KP_P_DECAY];
+            if (p.v[KP_P_LEVEL] < -6 || p.v[KP_P_LEVEL] > 12 || p.v[KP_P_DECAY] < 1 || p.v[KP_P_DECAY] > 200 ||
+                p.v[KP_P_HOLD] > 10 || abs(p.v[KP_P_TUNE]) > 12 || p.v[KP_P_DRIVE] != 0)
+                tame++;                  /* (the punch out of its ranges, or its drive moved) */
             shorter += p.v[KP_DECAY] < 550;
             if (db < -14.0f)
                 soft++;
@@ -435,8 +439,9 @@ int main(void)
         snprintf(t, sizeof t, "the dice's DECAY, 200..900 ms evenly: %ld ms on average (550), %d of 300 under 550 ms",
                  decay / 300, shorter);
         check(decay / 300 > 520 && decay / 300 < 580 && shorter > 125 && shorter < 175, t);
-        snprintf(t, sizeof t, "the dice: no punch one time in four (%d of 300)", unpunched);
-        check(unpunched > 50 && unpunched < 100, t);
+        snprintf(t, sizeof t, "the dice: no punch one time in four (%d of 300); its DECAY 1..200 ms evenly (%ld on "
+                 "average)", unpunched, pdecay / 300);
+        check(unpunched > 50 && unpunched < 100 && pdecay / 300 > 85 && pdecay / 300 < 115, t);
     }
     if (fails)
         printf("%d failed\n", fails);
