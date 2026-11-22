@@ -11,7 +11,10 @@
  *   midbody: 909 -> EQ (4 peaks) -> DIST 1 -> EQ 2 (4 peaks) -> DIST 2 -> POST (2 peaks) --+
  *   punch:   a kick (this one, or a preset) -> GATE (its attack alone) -> P.EQ -> DRIVE ---+-> GROUP A: A.EQ -> CLIP
  *                                                                                              (PUSH) -> OUT
- * then the master: a limiter.
+ *   GROUP A -+-> highpass -----------------------------------+
+ *            +-> lowpass -> SUB (its envelope, drive, gain) --+-> TOTAL: T.EQ -> CLIP (PUSH) -> OUT
+ * then the master: a limiter. The crossover (Linkwitz-Riley, fourth order) sums flat: the sub, made from the kick's
+ * own lows, falls exactly into the gap the highpass leaves, and does not go through group A's clipper.
  * Extreme boosts and cuts before a distortion choose what it does; it makes overtones; the next EQ finds the sweet
  * spots among them, and the next distortion presses them together. An EQ alone changes little: EQs in a row are one
  * EQ, so the distortions between them are what make the variety. The 909 is a sine whose pitch falls from a sweep to
@@ -45,12 +48,14 @@
 #define KICK_ROOT_HZ 48.999429f          /* G1: the default root (TUNE 0) */
 
 /* the EQs: each a parametric EQ of peaks (at 0 dB a band does nothing) */
-enum { KE_EQ1, KE_EQ2, KE_POST, KE_PEQ, KE_AEQ, KE_N };   /* the midbody's three, the punch's, group A's */
+enum { KE_EQ1, KE_EQ2, KE_POST, KE_PEQ, KE_AEQ, KE_TEQ, KE_N };   /* the midbody's three, the punch's, group A's, */
+                                                                  /* TOTAL's */
 #define KICK_EQ1_BANDS 4
 #define KICK_EQ2_BANDS 4
 #define KICK_POST_BANDS 2
 #define KICK_PEQ_BANDS 4
 #define KICK_AEQ_BANDS 4
+#define KICK_TEQ_BANDS 4
 /* a band's three parameters, from its first */
 enum { KB_FREQ, KB_GAIN, KB_Q, KB_N };
 /* a distortion's five, from its first */
@@ -89,6 +94,15 @@ enum {
     KP_A_PUSH = KP_AEQ + KB_N * KICK_AEQ_BANDS,   /* group A: into the clipper, dB */
     KP_A_CLIP,                           /* the clipper, KCL_* */
     KP_A_OUT,                            /* out of it, dB */
+    KP_X_FREQ,                           /* the sub (phase 4): the crossover, Hz; its lowest value is OFF (no split) */
+    KP_S_GAIN,                           /* the sub's level, dB */
+    KP_S_HOLD,                           /* its own envelope over the kick's: open, ms */
+    KP_S_DECAY,                          /* then down to -60 dB in, ms; its highest value is OPEN (no envelope) */
+    KP_S_DRIVE,                          /* a soft saturation, dB in; 0: none */
+    KP_TEQ,                              /* TOTAL's EQ */
+    KP_T_PUSH = KP_TEQ + KB_N * KICK_TEQ_BANDS,   /* TOTAL: into its clipper, dB */
+    KP_T_CLIP,                           /* KCL_* */
+    KP_T_OUT,                            /* out of it, dB */
     KP_COUNT
 };
 #define KICK_PARAMS_V1 (KP_POST + KB_N * KICK_POST_BANDS)   /* the parameters of the first presets (no punch) */
@@ -102,7 +116,8 @@ typedef struct {
     uint8_t step;                        /* a detent: 0 = about 3 % of the value (times, Hz, Q), else this many units */
     const char *const *list;             /* KU_LIST: a name for each value from min */
 } kick_param_info_t;
-enum { KU_ST, KU_OCT, KU_MS, KU_PCT, KU_DB, KU_HZ, KU_Q, KU_LIST };
+enum { KU_ST, KU_OCT, KU_MS, KU_PCT, KU_DB, KU_HZ, KU_Q, KU_LIST, KU_HZ_OFF, KU_MS_OPEN };
+/* KU_HZ_OFF: Hz, its min shown OFF; KU_MS_OPEN: ms, its max shown OPEN */
 
 const kick_param_info_t *kick_param_info(int i);
 void kick_param_text(int i, int v, char *buf);   /* the value with its unit, up to 8 characters */
@@ -149,6 +164,16 @@ typedef struct {
     kick_svf_t aeq[KICK_AEQ_BANDS];
     uint8_t a_clip;
     float a_push, a_out;
+    /* the sub */
+    uint8_t x_on;
+    kick_svf_t x_lp, x_hp;               /* one second-order stage each; run twice: Linkwitz-Riley */
+    float s_gain, s_drive;               /* s_drive 0: none */
+    uint32_t s_hold;
+    float s_decay_k;                     /* 1: open */
+    /* TOTAL */
+    kick_svf_t teq[KICK_TEQ_BANDS];
+    uint8_t t_clip;
+    float t_push, t_out;
 } kick_coefs_t;
 
 void kick_init(void);
@@ -171,7 +196,7 @@ typedef struct {                         /* the chain's state: it rings on after
 } kick_chain_t;
 
 /* where the output is taken (the screen's pictures): all of it; the midbody after a distortion, or whole; the punch */
-enum { KT_ALL, KT_D1, KT_D2, KT_MID, KT_PUNCH };
+enum { KT_ALL, KT_D1, KT_D2, KT_MID, KT_PUNCH, KT_A, KT_SUB };   /* KT_A: group A's output; KT_SUB: the sub */
 
 typedef struct {
     kick_voice_t v[2];                   /* the kick that sounds, and the one before it while it fades */
@@ -186,6 +211,9 @@ typedef struct {
     float gate;                          /* the punch's gate: 1 open, falling; 0 shut (the punch engine stopped) */
     uint32_t gate_hold;
     float peq[KICK_PEQ_BANDS][2], aeq[KICK_AEQ_BANDS][2];
+    float xlp[2][2], xhp[2][2], teq[KICK_TEQ_BANDS][2];   /* the crossover's two stages a side, TOTAL's EQ */
+    float s_env;                         /* the sub's envelope */
+    uint32_t s_hold;
     uint32_t p_quiet, quiet;             /* samples P.EQ's and group A's output has been silent */
     uint8_t tap;                         /* KT_* */
     float pbuf[256];                     /* the punch's block */
@@ -206,6 +234,8 @@ void kick_chain(kick_engine_t *e, const kick_coefs_t *c, float *buf, uint32_t n)
                                                                                        (the tests' sines) */
 float kick_curve(const kick_coefs_t *c, int eq, float hz);
 float kick_band_db(const kick_coefs_t *c, int eq, int band, float hz);
+float kick_xover_db(const kick_coefs_t *c, int low, float hz);   /* the crossover's lowpass (with the sub's gain) or
+                                                                   * highpass at hz, dB */
 int kick_randomize(kick_params_t *p, uint32_t *seed);   /* the throws it took */
 float kick_loudness(const kick_coefs_t *c);
 

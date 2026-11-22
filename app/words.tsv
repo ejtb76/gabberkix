@@ -19,3 +19,15 @@ P.DRV	punch drive
 P.GAIN	punch gain
 A.OUT	group A out
 SRC	source
+SUB	sub
+TOTAL	total
+MID	midbody
+X.FREQ	crossover
+S.GAIN	sub gain
+S.HOLD	sub hold
+S.DECAY	sub decay
+S.DRV	sub drive
+T.PUSH	total push
+T.CLIP	total clip
+T.OUT	total out
+OPEN	open

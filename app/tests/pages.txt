@@ -2,7 +2,8 @@
 # Pages: 0 909, 1 EQ, 2 D1, 3 EQ2, 4 D2, 5 POST, 6 PNCH, 7 P.EQ, 8 GRP.A. Parameters: EQ band b (0..3) FREQ 7+3b, GAIN 8+3b, Q 9+3b;
 # DIST1 19..23 (TYPE DRIVE BIAS OUT MIX); EQ2 band b (0..3) FREQ 24+3b, GAIN 25+3b, Q 26+3b; DIST2 36..40;
 # POST A 41..43, B 44..46; PNCH 47..52 (SRC TUNE HOLD DECAY DRIVE GAIN); P.EQ 53..64; GRP.A's EQ 65..76, PUSH 77,
-# CLIP 78, OUT 79. An EQ page: K1 band, K2 gain, K3 Q, K4 frequency.
+# CLIP 78, OUT 79; SUB 80..84 (X.FREQ S.GAIN S.HOLD S.DECAY S.DRV); TOTAL's EQ 85..96, PUSH 97, CLIP 98, OUT 99.
+# An EQ page: K1 band, K2 gain, K3 Q, K4 frequency.
 master 4096
 wait 300
 wav chain.wav
@@ -132,6 +133,30 @@ expect p78 2
 tap SEQ
 wait 800
 shot groupa.png
+# OCT-: SUB (split at 120 Hz on a new kick); lower, the sub up 3 dB, a short envelope; OCT+: TOTAL; band 1 down;
+# SEL: more push; OCT+ again: band 2
+tap OCT-
+expect page 9
+expect p80 120
+turn K1 -5
+expect p80 <110
+turn K2 3
+expect p81 3
+turn K4 -30
+expect p83 <1000
+wait 800
+shot sub.png
+tap OCT+
+expect page 10
+turn K2 -4
+expect p86 -4
+press SEL
+turn K1 6
+release SEL
+expect p97 9
+tap OCT+
+wait 800
+shot total.png
 # ARP: the dice; as loud as a new kick (-11 dBFS a beat), POST untouched; SEL + ARP: undo, the EQ as it was (band 1
 # at -30 dB, band 2 at +24 dB); undo again: nothing (one throw back); ARP again
 tap ARP
@@ -155,14 +180,16 @@ tap ARP
 expect throws 2
 wait 400
 shot dice2.png
-# SELECT walks every page, round: from GRP.A to 909, from 909 back to GRP.A
+# SELECT walks every page, round: from TOTAL to 909, from 909 back to TOTAL
+tap OCT+
+expect page 10
 turn SELECT 1
 expect page 0
 turn SELECT -1
-expect page 8
+expect page 10
 turn SELECT 3
 expect page 2
-turn SELECT 8
+turn SELECT 10
 expect page 1
 tap PLAY
 expect playing 0

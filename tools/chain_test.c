@@ -21,12 +21,32 @@ static float peak_of(const float *b, uint32_t n);
 static float buf[N], ref[N];
 static int fails;
 
-static void mid_only(kick_params_t *p)   /* the midbody alone: no punch, group A a straight wire */
+static void total_neutral(kick_params_t *p)   /* no split, TOTAL a straight wire */
+{
+    p->v[KP_X_FREQ] = kick_param_info(KP_X_FREQ)->min;
+    p->v[KP_T_CLIP] = KCL_OFF;
+    p->v[KP_T_PUSH] = 0;
+    p->v[KP_T_OUT] = 0;
+}
+
+static void mid_only(kick_params_t *p)   /* the midbody alone: no punch, the groups straight wires */
 {
     p->v[KP_P_SRC] = KPS_OFF;
     p->v[KP_A_CLIP] = KCL_OFF;
     p->v[KP_A_PUSH] = 0;
     p->v[KP_A_OUT] = 0;
+    total_neutral(p);
+}
+
+static double dft_db(const float *x, uint32_t n, double hz)   /* the whole signal's magnitude at hz (no window) */
+{
+    double re = 0.0, im = 0.0;
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        re += x[i] * cos(2.0 * M_PI * hz * i / KICK_RATE);
+        im -= x[i] * sin(2.0 * M_PI * hz * i / KICK_RATE);
+    }
+    return 10.0 * log10(re * re + im * im + 1e-30);
 }
 
 static void neutral(kick_params_t *p)    /* every EQ flat (a new kick's), both distortions off, the midbody alone */
@@ -393,13 +413,63 @@ int main(void)
         check(d / 882.0 > 1e-4, t);
     }
 
+    /* the sub and TOTAL */
+    {
+        static float xa[N], xb[N], sub[16384];
+        static const double AT[] = {30.0, 49.0, 80.0, 120.0, 160.0, 250.0, 500.0, 2000.0, 8000.0};
+        double worst = 0.0, d = 0.0, early = 0.0, late = 0.0;
+        uint32_t na, nb, j;
+        char t[200];
+        /* the crossover sums flat: the kick split at 120 Hz (the sub neutral, TOTAL a wire) has the spectrum of
+           the kick not split (an allpass between them: the same magnitudes, the whole kick rendered) */
+        kick_params_default(&p);
+        total_neutral(&p);
+        kick_cook(&p, &c);
+        na = kick_render_one(&c, 0, xa, N);
+        p.v[KP_X_FREQ] = 120;
+        kick_cook(&p, &c);
+        nb = kick_render_one(&c, 0, xb, N);
+        for (j = 0; j < sizeof AT / sizeof AT[0]; j++) {
+            double e = fabs(dft_db(xa, na, AT[j]) - dft_db(xb, nb, AT[j]));
+            if (e > worst)
+                worst = e;
+        }
+        snprintf(t, sizeof t, "the crossover at 120 Hz sums flat: the split kick's spectrum is the whole one's "
+                 "(worst %.2f dB, 30 Hz .. 8 kHz)", worst);
+        check(worst < 0.1, t);
+        /* a preset from phase 3 (no sub parameters), upgraded: no split, TOTAL a wire: exactly as it sounded */
+        kick_params_default(&p);
+        kick_params_upgrade(&p, KP_X_FREQ);
+        kick_cook(&p, &c);
+        kit_tap(&c, KT_A, xa, 16384u);
+        kit_tap(&c, KT_ALL, xb, 16384u);
+        for (j = 0; j < 16384u; j++)
+            if (fabs(xa[j] - xb[j]) > d)
+                d = fabs(xa[j] - xb[j]);
+        check(d == 0.0, "a preset from before the sub sounds exactly as it did (no split, no TOTAL clipper)");
+        /* the sub's own envelope: S.DECAY 60 ms, no hold: gone after 200 ms; open: there */
+        kick_params_default(&p);
+        p.v[KP_S_DECAY] = 60;
+        kick_cook(&p, &c);
+        kit_tap(&c, KT_SUB, sub, 16384u);
+        for (j = 0; j < 16384u; j++) {
+            if (j < 2205u)
+                early += (double)sub[j] * sub[j];
+            else if (j > 8820u)
+                late += (double)sub[j] * sub[j];
+        }
+        snprintf(t, sizeof t, "the sub's envelope at S.DECAY 60 ms: %.0f dB less after 200 ms than in the first 50",
+                 10.0 * log10(early / (late + 1e-30)));
+        check(early > 0.0 && late < early * 1e-4, t);
+    }
+
     /* the dice: 300 throws; every kick as loud as a new one (never soft, never silent), its EQs extreme */
     {
         uint32_t seed = 12345u;
         int k, soft = 0, loud = 0, tame = 0, throws = 0, most = 0, shorter = 0, unpunched = 0;
         long decay = 0, pdecay = 0;
         float lo = 0.0f, hi = -120.0f;
-        char t[256];
+        char t[320];
         for (k = 0; k < 300; k++) {
             int j, tries;
             float db;
@@ -423,6 +493,9 @@ int main(void)
                 if ((g < 0 && f >= 35 && f <= 90) || (g2 > 0 && f2 > 5000) || (g2 > 12 && f2 > 2000))
                     tame++;
             }
+            if (p.v[KP_X_FREQ] < 60 || p.v[KP_X_FREQ] > 200 || p.v[KP_S_GAIN] < -3 || p.v[KP_S_GAIN] > 6 ||
+                p.v[KP_S_HOLD] > 100 || p.v[KP_T_PUSH] != 3 || p.v[KP_T_CLIP] != KCL_HARD)
+                tame++;                  /* (the sub out of its ranges, or TOTAL moved) */
             if (p.v[KP_P_LEVEL] < -12 || p.v[KP_P_LEVEL] > 6 || p.v[KP_P_DECAY] < 1 || p.v[KP_P_DECAY] > 200 ||
                 p.v[KP_P_HOLD] > 10 || abs(p.v[KP_P_TUNE]) > 12 || p.v[KP_P_DRIVE] != 0)
                 tame++;                  /* (the punch out of its ranges, or its drive moved) */

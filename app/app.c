@@ -1,9 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only AND MPL-2.0
  * Copyright (C) 2026 Presethead. text_cat, int_text and app_say are from fm1-base's template (template/app.c),
  * Copyright (C) 2026 Charles Vestal, MPL-2.0 (base/LICENSE); the rest is GPL-3.0-only (LICENSE). */
-/* GABBERKIX: a kick designer for the FM-1. Two layers into a group: the midbody (a synthesized 909, an EQ, a
- * distortion, a second EQ, a second distortion, an EQ after them) and the punch (the hard tick at the start of a kick),
- * pressed together in group A's clipper, then a limiter (app/kick/kick.h); played by PLAY (a kick on every beat at the
+/* GABBERKIX: a kick designer for the FM-1. Three layers: the midbody (a synthesized 909, an EQ, a distortion, a
+ * second EQ, a second distortion, an EQ after them) and the punch (the hard tick at the start of a kick), pressed
+ * together in group A's clipper; the sub, group A's lows split off; both into TOTAL's clipper, then a limiter
+ * (app/kick/kick.h); played by PLAY (a kick on every beat at the
  * root, G1) and by the keys and MIDI notes (pitched, an octave down to an octave up).
  *
  * The panel:
@@ -11,6 +12,7 @@
  *   HOME         909      EDIT  EQ (again: the next band)            LFO  EQ2 (again: the next band)
  *   FX           D1 (again: D2, and back)                            GLO  POST (again: the other band)
  *   ENV          PNCH (again: P.EQ, and back)                        SEQ  GRP.A (again: its next band)
+ *   OCT-         SUB                                                 OCT+ TOTAL (again: its next band)
  *   K1..K4       the page's first four parameters; with SEL held, the next four
  *   SEL + white key    load the preset on that key; SAVE + white key: save the kick there. Held, SEL and
  *                SAVE light the keys that hold a preset half, the one loaded or saved last bright
@@ -38,7 +40,8 @@
  * that band's gain, Q and frequency. Under them a picture: the kick's first second (909); an EQ's bands (each a dot,
  * its own curve faint, the sum bright) over the spectrum after the next distortion, where its sweet spots show; or
  * the spectrum after a distortion. */
-enum { V_WAVE, V_CURVE, V_SPEC, V_PUNCH };   /* V_PUNCH: the first 50 ms, the punch over the whole kick */
+enum { V_WAVE, V_CURVE, V_SPEC, V_PUNCH, V_XOVER };   /* V_PUNCH: the first 50 ms, the punch over the whole kick;
+                                                        V_XOVER: the crossover's two halves over group A's spectrum */
 enum { PS_NONE = -1, PS_BAND = -2, PS_FREQ = -3, PS_GAIN = -4, PS_Q = -5 };
 typedef struct {
     const char *name;
@@ -52,7 +55,11 @@ typedef struct {
 #define COLOURS(r, g, b, r2, g2, b2) RGB(r, g, b), RGB(r2, g2, b2)
 #define EQ_KNOBS {PS_BAND, PS_GAIN, PS_Q, PS_FREQ, -1, -1, -1, -1}
 #define DIST_KNOBS(d) {(d) + KD_TYPE, (d) + KD_DRIVE, (d) + KD_BIAS, (d) + KD_OUT, (d) + KD_MIX, -1, -1, -1}
-enum { PG_909, PG_EQ, PG_D1, PG_EQ2, PG_D2, PG_POST, PG_PUNCH, PG_PEQ, PG_A };
+enum { PG_909, PG_EQ, PG_D1, PG_EQ2, PG_D2, PG_POST, PG_PUNCH, PG_PEQ, PG_A, PG_SUB, PG_TOT };
+/* the layers, for the tab bar: the midbody's pages, the punch's, group A, the sub, TOTAL */
+enum { L_MID, L_PUNCH, L_A, L_SUB, L_TOT, L_N };
+static const uint8_t PAGE_LAYER[] = {L_MID, L_MID, L_MID, L_MID, L_MID, L_MID, L_PUNCH, L_PUNCH, L_A, L_SUB, L_TOT};
+static const char *const LAYER_NAME[L_N] = {"MID", "PNCH", "A", "SUB", "TOT"};
 static const page_t PAGES[] = {
     [PG_909] = {"909", {KP_SWEEP, KP_SWEEP_T, KP_HOLD, KP_DECAY, KP_TUNE, KP_CLICK, KP_LEVEL, -1}, V_WAVE, -1, KT_ALL,
                 B_HOME, COLOURS(232, 76, 60, 255, 132, 112)},
@@ -64,8 +71,12 @@ static const page_t PAGES[] = {
     [PG_PUNCH] = {"PNCH", {KP_P_SRC, KP_P_LEVEL, KP_P_HOLD, KP_P_DECAY, KP_P_DRIVE, KP_P_TUNE, -1, -1}, V_PUNCH, -1,
                   KT_PUNCH, B_ENV, COLOURS(225, 205, 40, 255, 240, 130)},
     [PG_PEQ] = {"P.EQ", EQ_KNOBS, V_CURVE, KE_PEQ, KT_PUNCH, B_ENV, COLOURS(40, 200, 170, 130, 245, 220)},
-    [PG_A] = {"GRP.A", {PS_BAND, PS_GAIN, PS_Q, PS_FREQ, KP_A_PUSH, KP_A_CLIP, KP_A_OUT, -1}, V_CURVE, KE_AEQ, KT_ALL,
+    [PG_A] = {"GRP.A", {PS_BAND, PS_GAIN, PS_Q, PS_FREQ, KP_A_PUSH, KP_A_CLIP, KP_A_OUT, -1}, V_CURVE, KE_AEQ, KT_A,
               B_SEQ, COLOURS(240, 90, 130, 255, 165, 195)},
+    [PG_SUB] = {"SUB", {KP_X_FREQ, KP_S_GAIN, KP_S_HOLD, KP_S_DECAY, KP_S_DRIVE, -1, -1, -1}, V_XOVER, -1, KT_A,
+                B_OCTDN, COLOURS(150, 90, 230, 200, 165, 255)},
+    [PG_TOT] = {"TOTAL", {PS_BAND, PS_GAIN, PS_Q, PS_FREQ, KP_T_PUSH, KP_T_CLIP, KP_T_OUT, -1}, V_CURVE, KE_TEQ, KT_ALL,
+                B_OCTUP, COLOURS(235, 235, 235, 255, 255, 255)},
 };
 #define NPAGES ((int)(sizeof PAGES / sizeof PAGES[0]))
 
@@ -535,8 +546,11 @@ static void input(void)
                 p = ui.page == PG_D1 ? PG_D2 : PG_D1;
             else if (k == B_ENV)                 /* PNCH; again: P.EQ, and back */
                 p = ui.page == PG_PUNCH ? PG_PEQ : PG_PUNCH;
-            else if (k == B_EDIT || k == B_LFO || k == B_GLO || k == B_SEQ) {   /* an EQ page; again: its next band */
-                int to = k == B_EDIT ? PG_EQ : k == B_LFO ? PG_EQ2 : k == B_GLO ? PG_POST : PG_A;
+            else if (k == B_OCTDN)
+                p = PG_SUB;
+            else if (k == B_EDIT || k == B_LFO || k == B_GLO || k == B_SEQ || k == B_OCTUP) {   /* an EQ page; */
+                int to = k == B_EDIT ? PG_EQ : k == B_LFO ? PG_EQ2 : k == B_GLO ? PG_POST   /* again: next band */
+                         : k == B_SEQ ? PG_A : PG_TOT;
                 if (ui.page == to)
                     band_to(*band_of_page() + 1);
                 else
@@ -728,6 +742,18 @@ static void curve_draw(int what, uint16_t color)   /* an EQ's: the sum of its ba
     }
 }
 
+static void xover_draw(int low, uint16_t color)   /* a half of the crossover */
+{
+    const kick_coefs_t *c = &coefs[coefs_cur];
+    int32_t x, py = db_y(kick_xover_db(c, low, COL_HZ(0)));
+    for (x = 0; x < 240; x++) {
+        int32_t y = db_y(kick_xover_db(c, low, COL_HZ(x)));
+        int32_t y0 = y < py ? y : py, y1 = y < py ? py : y;
+        cv_rect(x, 12 + y0, 1, y1 - y0 + 1, color);
+        py = y;
+    }
+}
+
 /* the bands, as an EQ plugin draws them: each its own faint curve (where it is away from 0 dB) and a dot at its
  * frequency and gain, the band the knobs turn lit and numbered */
 static void bands_draw(int what, int sel)
@@ -791,11 +817,23 @@ static void draw(void)
     /* the page and its parameters: two rows of four, the row the knobs turn lit */
     cv_begin(240, 90, C_BLACK);
     cv_rect(0, 0, 240, 1, C_LINE);
-    {                                    /* the pages, as tabs: this one lit and underlined, each in its colour */
-        int32_t x = 8;
-        int k;
+    {   /* the tabs: the pages of this page's layer, this one lit and underlined, each in its colour; the other
+           layers by their name */
+        int32_t x = 6;
+        int k, l = -1, here = PAGE_LAYER[ui.page];
         for (k = 0; k < NPAGES; k++) {
-            int32_t x1 = cv_text(x, 4, &FONT_XS, PAGES[k].name, k == ui.page ? PAGES[k].hi : C_DIM);
+            int lay = PAGE_LAYER[k], first = lay != l;
+            int32_t x1;
+            l = lay;
+            if (lay != here) {
+                if (first) {
+                    x1 = cv_text(x, 4, &FONT_XS, LAYER_NAME[lay], C_DIM);
+                    cv_rect(x - 1, 15, x1 - x + 2, 1, PAGES[k].amb);
+                    x = x1 + 6;
+                }
+                continue;
+            }
+            x1 = cv_text(x, 4, &FONT_XS, PAGES[k].name, k == ui.page ? PAGES[k].hi : C_DIM);
             cv_rect(x - 1, 15, x1 - x + 2, k == ui.page ? 2 : 1, k == ui.page ? PAGES[k].hi : PAGES[k].amb);
             x = x1 + 6;
         }
@@ -827,6 +865,16 @@ static void draw(void)
         cv_rect(0, 12 + WAVE_H / 2 - 1, 240, 1, C_DIM);   /* 0 dB */
         bands_draw(pg->eq, *band_of_page());
         curve_draw(pg->eq, C_HI);
+        break;
+    case V_XOVER:                        /* group A's spectrum, faint; the sub's half (with its gain) and the high */
+        freq_grid();                     /* half */
+        spec_draw(C_LINE);
+        cv_rect(0, 12 + WAVE_H / 2 - 1, 240, 1, C_DIM);
+        if (params.v[KP_X_FREQ] > kick_param_info(KP_X_FREQ)->min) {
+            cv_rect(hz_x((float)params.v[KP_X_FREQ]), 12, 1, WAVE_H, C_AMB);
+            xover_draw(0, C_GRAY);
+            xover_draw(1, C_HI);
+        }
         break;
     case V_SPEC:
         freq_grid();
