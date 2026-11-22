@@ -10,6 +10,8 @@
  *   HOME         909      EDIT  EQ (again: the next band)            LFO  EQ2 (again: the next band)
  *   FX           DIST1 (again: DIST2, and back)                      GLO  POST (again: the other band)
  *   K1..K4       the page's first four parameters; with SEL held, the next four
+ *   SEL + white key    load the preset on that key; SAVE + white key: save the kick there. Held, SEL and
+ *                SAVE light the keys that hold a preset dim, the one loaded or saved last bright
  *   ARP          throw the dice: extreme curves on both EQs, new distortions, as loud as a new kick
  *   SEL + ARP    undo the last throw
  *   PRESETS      tempo, 60..300 BPM
@@ -172,14 +174,6 @@ void app_panic(void)
     kick_engine_reset(&engine);
 }
 
-void app_init(void)
-{
-    kick_init();
-    kick_params_default(&params);
-    kick_engine_reset(&engine);
-    cook();
-}
-
 /* ------------------------------------------------------------------- UI --- */
 static struct {
     char msg[2][24];                     /* a short message over the header */
@@ -276,6 +270,112 @@ static void key_kick(int semis)              /* main loop: a kick, played by the
     }
 }
 
+/* ------------------------------------------------------------- presets --- */
+/* sixteen kicks, one on each white key, in one store object (OBJ_PRESETS). A preset is the parameters' array; they
+ * are only ever added at its end (kick.h), so one saved by a firmware with fewer gets the defaults for the rest, and
+ * one saved by a later firmware with more loses only those. */
+#define PRESET_MAGIC 0x4B42474Bu         /* "KGBK" */
+#define NPRESETS 16
+static const uint8_t WHITE[NPRESETS] = PLAT_WHITE_KEYS;
+typedef struct {
+    uint32_t magic;
+    uint16_t nparams;                    /* KP_COUNT of the firmware that saved them: each slot's length */
+    uint16_t used;                       /* bit s: slot s holds a kick */
+    int16_t v[NPRESETS * KP_COUNT];      /* slot s at s * nparams */
+} presets_t;
+static presets_t presets;                /* this firmware's layout */
+static int preset_cur = -1;              /* the slot loaded or saved last; -1 none */
+static uint8_t preset_edited;            /* the kick has changed since */
+static uint32_t preset_saves;            /* (the host's checks) */
+
+static void presets_load(void)
+{
+    static uint8_t all[PLAT_STORE_MAX];   /* (an older or newer layout: read whole, each slot re-laid) */
+    int n = plat_store_head(OBJ_PRESETS, &presets, 8u), s, i, np = presets.nparams;   /* the header first: a */
+    if (n < 8 || presets.magic != PRESET_MAGIC || np < 1 || 8 + NPRESETS * np * 2 > (int)PLAT_STORE_MAX ||
+        plat_store_size(OBJ_PRESETS) != 8 + NPRESETS * np * 2) {
+        presets.magic = PRESET_MAGIC;     /* none, or not ours: sixteen empty slots */
+        presets.nparams = KP_COUNT;
+        presets.used = 0;
+        return;
+    }
+    if (np == KP_COUNT) {                 /* newer firmware's presets may be longer than this one's */
+        plat_store_load(OBJ_PRESETS, &presets, sizeof presets);
+        return;
+    }
+    plat_store_load(OBJ_PRESETS, all, sizeof all);
+    for (s = 0; s < NPRESETS; s++) {
+        kick_params_t d;
+        kick_params_default(&d);
+        for (i = 0; i < KP_COUNT; i++) {
+            int at = 8 + 2 * (s * np + i);
+            presets.v[s * KP_COUNT + i] = i < np ? (int16_t)(all[at] | all[at + 1] << 8) : d.v[i];
+        }
+    }
+    presets.nparams = KP_COUNT;
+}
+
+static void preset_load(int slot)
+{
+    char t[4];
+    int i;
+    if (!(presets.used >> slot & 1u)) {
+        app_say("EMPTY", "");
+        return;
+    }
+    for (i = 0; i < KP_COUNT; i++) {     /* each value within its range, whatever the flash held */
+        const kick_param_info_t *in = kick_param_info(i);
+        params.v[i] = (int16_t)clamp(presets.v[slot * KP_COUNT + i], in->min, in->max);
+    }
+    preset_cur = slot;
+    preset_edited = 0;
+    has_undo = 0;                        /* (SEL + ARP undoes a throw, not a load) */
+    cook();
+    int_text(slot + 1, t);
+    app_say("PRESET", t);
+    ui.focus = -1;
+    ui.wave_dirty = 1;
+}
+
+static void preset_save(int slot)
+{
+    char t[4];
+    int i;
+    for (i = 0; i < KP_COUNT; i++)
+        presets.v[slot * KP_COUNT + i] = params.v[i];
+    presets.used |= (uint16_t)(1u << slot);
+    if (plat_store_save(OBJ_PRESETS, &presets, sizeof presets) != 0) {
+        app_say("NOT SAVED", "FLASH");
+        return;
+    }
+    preset_saves++;
+    preset_cur = slot;
+    preset_edited = 0;
+    int_text(slot + 1, t);
+    app_say("SAVED", t);
+}
+
+static int white_slot(uint32_t key)      /* the preset slot of a key: -1 for a black key */
+{
+    int s;
+    for (s = 0; s < NPRESETS; s++)
+        if (WHITE[s] == key)
+            return s;
+    return -1;
+}
+
+void app_init(void)
+{
+    kick_init();
+    kick_params_default(&params);
+    kick_engine_reset(&engine);
+    cook();
+    presets_load();
+    preset_cur = -1;                     /* a new kick at power-on; the presets wait on their keys */
+    preset_edited = 0;
+    has_undo = 0;
+}
+
 static int *band_of_page(void)           /* the band the page's knobs turn */
 {
     return &ui.band[PAGES[ui.page].eq < 0 ? 0 : PAGES[ui.page].eq];
@@ -321,6 +421,7 @@ static void param_turn(int slot, int detents)
     if (i < 0)
         return;
     params.v[i] = (int16_t)kick_param_step(i, params.v[i], detents);
+    preset_edited = 1;
     cook();
     kick_param_text(i, params.v[i], t);
     app_say(kick_param_info(i)->name, t);
@@ -355,6 +456,7 @@ static void dice_throw(int undo)
         has_undo = 1;
         dice_seed ^= plat_ms() * 2654435761u + ++dice_throws;
         kick_randomize(&params, &dice_seed);
+        preset_edited = 1;
         kick_cook(&params, &c);
         dice_db = (int)(kick_loudness(&c) - 0.5f);
         int_text(dice_db, t);
@@ -372,8 +474,17 @@ static void input(void)
     int32_t e;
     int row = (btn >> B_SEL) & 1u;
     for (k = 0; k < NKEYS; k++)                  /* key 0 is F3 (MIDI 53) */
-        if ((keys >> k & 1u) && !(ui.keys >> k & 1u))
-            key_kick(53 + (int)k - ROOT_NOTE);
+        if ((keys >> k & 1u) && !(ui.keys >> k & 1u)) {
+            int slot = white_slot(k);
+            if (btn >> B_SAVE & 1u) {            /* SAVE + a white key: the kick there; SEL + one: load it */
+                if (slot >= 0)
+                    preset_save(slot);
+            } else if (btn >> B_SEL & 1u) {
+                if (slot >= 0)
+                    preset_load(slot);
+            } else
+                key_kick(53 + (int)k - ROOT_NOTE);
+        }
     if ((btn >> B_PLAY & 1u) && !(ui.btn >> B_PLAY & 1u)) {
         if (playing)
             playing = 0;
@@ -420,8 +531,22 @@ static void input(void)
         ui.redraw = 1;
     ui.keys = keys;
     ui.btn = btn;
-    plat_glow(1);
-    plat_leds((playing ? 1u << B_PLAY : 0u) | (btn & (1u << B_SEL)) | 1u << PAGES[ui.page].button, keys);
+    {
+        uint32_t lit = (playing ? 1u << B_PLAY : 0u) | (btn & (1u << B_SEL | 1u << B_SAVE)) | 1u << PAGES[ui.page].button;
+        if (btn & (1u << B_SEL | 1u << B_SAVE)) {   /* SEL or SAVE held: the presets on the white keys */
+            uint32_t dim = 0, bright = 0;
+            int s2;
+            for (s2 = 0; s2 < NPRESETS; s2++)
+                if (presets.used >> s2 & 1u)
+                    dim |= 1u << WHITE[s2];
+            if (preset_cur >= 0)
+                bright = 1u << WHITE[preset_cur];
+            plat_lights(lit, bright, 0, dim, 1);
+        } else {
+            plat_glow(1);
+            plat_leds(lit, keys);
+        }
+    }
 }
 
 void app_input_only(void) { input(); }
@@ -583,7 +708,14 @@ static void draw(void)
         int32_t x = cv_text(8, 5, &FONT_B, ui.msg[0], C_WHITE);
         cv_text(x + 8, 5, &FONT_B, ui.msg[1], C_HI);
     } else {
-        cv_text(8, 5, &FONT_B, APP_NAME, C_WHITE);
+        int32_t x = cv_text(8, 5, &FONT_B, APP_NAME, C_WHITE);
+        if (preset_cur >= 0) {           /* the preset loaded or saved last; a star: changed since */
+            t[0] = 'P';
+            int_text(preset_cur + 1, t + 1);
+            if (preset_edited)
+                text_cat(t, "*");
+            cv_text(x + 10, 9, &FONT_XS, t, C_GRAY);
+        }
         int_text(tempo, t);
         text_cat(t, " BPM");
         cv_text(232 - text_w(&FONT_XS, t), 9, &FONT_XS, t, playing ? C_HI : C_GRAY);
@@ -715,6 +847,12 @@ int app_expect(const char *what, int *got)
         *got = ui.band[KE_EQ1] + 1;
     else if (!strcmp(what, "band2"))
         *got = ui.band[KE_EQ2] + 1;
+    else if (!strcmp(what, "preset"))    /* the slot loaded or saved last, 1..16, 0 none; saves; the used slots' bits */
+        *got = preset_cur + 1;
+    else if (!strcmp(what, "saves"))
+        *got = (int)preset_saves;
+    else if (!strcmp(what, "used"))
+        *got = presets.used;
     else if (!strcmp(what, "throws"))    /* the dice: how often thrown; the last kick's loudness, dBFS */
         *got = (int)dice_throws;
     else if (!strcmp(what, "dice_db"))

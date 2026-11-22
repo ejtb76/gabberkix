@@ -49,7 +49,9 @@ enum { KD_TYPE, KD_DRIVE, KD_BIAS, KD_OUT, KD_MIX, KD_N };
 /* its types */
 enum { KDT_OFF, KDT_TANH, KDT_HARD, KDT_GABBER, KDT_N };
 
-/* the parameters, as the player sets them (whole numbers, in the units shown); a preset is this array */
+/* the parameters, as the player sets them (whole numbers, in the units shown); a preset is this array. Presets are
+ * saved on the FM-1 (app.c), so from now on a parameter is only ever added at the end (before KP_COUNT), never moved
+ * or taken out: a preset saved earlier then still means the same kick */
 enum {
     KP_TUNE,                             /* root, semitones from G1 */
     KP_SWEEP,                            /* the pitch sweep's start above the root, 1/100 octave */

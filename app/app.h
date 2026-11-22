@@ -13,8 +13,8 @@
 
 /* the store: the app's objects, the panel calibration (the platform's) and Bluetooth's address and pairing among
  * them, and their flash offsets */
-enum { OBJ_SETTINGS, OBJ_PANEL, OBJ_BLE, OBJ_NOBJ };
-#define APP_STORE_MAP {0xFC000u, 0xDC000u, 0xDE000u}
+enum { OBJ_SETTINGS, OBJ_PANEL, OBJ_BLE, OBJ_PRESETS, OBJ_NOBJ };   /* (numbered for good: only ever added) */
+#define APP_STORE_MAP {0xFC000u, 0xDC000u, 0xDE000u, 0xDA000u}    /* the presets: the data area, below the panel's */
 
 /* the contract: the platform calls these */
 void app_init(void);                     /* boot: the engine and the blank 909 */

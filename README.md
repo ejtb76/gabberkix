@@ -4,8 +4,8 @@
 attack and a sub for the low end, pressed into one kick by groups driven hard into clippers.
 
 > **Status: phase 2 of 6, tried on an FM-1.** The midbody is in: a synthesized 909 through two rounds of EQ and
-> distortion and an EQ after them, played on every beat or pitched from the keys and MIDI. Punch, groups, sub and
-> presets follow (`kick-firmware-instructions.md`).
+> distortion and an EQ after them, played on every beat or pitched from the keys and MIDI, with sixteen presets and a
+> randomizer. Punch, groups and sub follow (`kick-firmware-instructions.md`).
 
 Built on [fm1-base](https://github.com/charlesvestal/fm1-base) and felucca-bsp, from Felucca by Leo Kuroshita
 (Hügelton Instruments).
@@ -57,6 +57,8 @@ screen are computed from the same coefficients the sound uses (`tools/chain_test
 | **FX** | DIST1; again: DIST2, and back |
 | **LFO** | The EQ2 page; again: the next band |
 | **GLO** | The POST page; again: the other band |
+| **SEL** held + white key | Load the preset on that key |
+| **SAVE** held + white key | Save the kick on that key (16 presets, one a white key) |
 | **ARP** | Throw the dice: the 909's SWEEP, CLICK and DECAY, extreme curves on both EQs and new distortions, at the loudness of a new kick |
 | **SEL** held + **ARP** | Undo the last throw |
 | **K1–K4** | The page's top row |
@@ -80,6 +82,14 @@ EQ2 blue, DIST2 amber, POST green), so a glance tells where you are. Under the k
 second (909); on an EQ page its bands as an EQ plugin draws them (each a numbered dot with its own faint curve, the
 band the knobs turn lit, their sum the bright line) over the spectrum after the next distortion, where its sweet
 spots show; on a distortion page the spectrum after it.
+
+## Presets
+
+Sixteen kicks, one on each white key. Hold **SAVE** and press a white key to save the kick there; hold **SEL** and
+press one to load it. While SEL or SAVE is held, the white keys that hold a preset light dim, and the one loaded or
+saved last lights bright. The header shows it (P3), with a star once the kick has changed since. The presets are kept
+in the FM-1's flash, outside the firmware: they survive a restart and an update. A preset is the parameters alone (no
+audio); parameters are only ever added at the end of the list, so a preset saved now still loads in a later version.
 
 ## Building and testing
 

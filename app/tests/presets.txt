@@ -1,0 +1,58 @@
+# Presets: SAVE + a white key saves the kick there, SEL + one loads it; black keys do nothing; an empty slot loads
+# nothing; the presets survive a restart. Held, SEL and SAVE light the keys with a preset dim, the current one bright.
+# (p1: SWEEP, 200 on a new kick, 5 a detent)
+master 4096
+wait 300
+expect preset 0
+turn K1 4
+expect p1 220
+press SAVE
+tapkey w0
+release SAVE
+expect saves 1
+expect preset 1
+expect used 1
+# a black key with SAVE: nothing
+press SAVE
+tapkey b0
+release SAVE
+expect saves 1
+turn K1 4
+expect p1 240
+press SAVE
+tapkey w15
+release SAVE
+expect used 32769
+expect preset 16
+turn K1 -8
+expect p1 200
+# SEL + key: load; an empty slot: nothing
+press SEL
+tapkey w0
+expect p1 220
+expect preset 1
+leds
+tapkey w3
+expect p1 220
+expect preset 1
+release SEL
+shot loaded.png
+press SEL
+tapkey w15
+release SEL
+expect p1 240
+# the keys play kicks again once SEL is up
+expect kicks 0
+tapkey w8
+wait 300
+expect kicks 1
+# a restart: the presets are still there
+reboot
+wait 300
+expect used 32769
+expect preset 0
+expect p1 200
+press SEL
+tapkey w0
+release SEL
+expect p1 220
