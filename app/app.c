@@ -11,7 +11,7 @@
  *   FX           DIST1 (again: DIST2, and back)                      GLO  POST (again: the other band)
  *   K1..K4       the page's first four parameters; with SEL held, the next four
  *   SEL + white key    load the preset on that key; SAVE + white key: save the kick there. Held, SEL and
- *                SAVE light the keys that hold a preset dim, the one loaded or saved last bright
+ *                SAVE light the keys that hold a preset half, the one loaded or saved last bright
  *   ARP          throw the dice: extreme curves on both EQs, new distortions, as loud as a new kick
  *   SEL + ARP    undo the last throw
  *   PRESETS      tempo, 60..300 BPM
@@ -541,10 +541,12 @@ static void input(void)
                     dim |= 1u << WHITE[s2];
             if (preset_cur >= 0)
                 bright = 1u << WHITE[preset_cur];
-            plat_lights(lit, bright, 0, dim, 1);
+            plat_lights(lit, bright, 0, 0, 1);
+            plat_lights_mid(0, dim & ~bright);   /* the mid level (~12 % of lit): the glow's is too faint to see */
         } else {
             plat_glow(1);
             plat_leds(lit, keys);
+            plat_lights_mid(0, 0);
         }
     }
 }
