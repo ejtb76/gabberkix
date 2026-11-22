@@ -99,7 +99,8 @@ The pages' knobs:
 
 Along the top, the pages as tabs, the one shown lit; each page has its own colour (909 red, EQ cyan, D1 magenta,
 EQ2 blue, D2 amber, POST green, PNCH yellow, P.EQ teal, GRP.A pink), so a glance tells where you are. Under the knobs the screen shows the kick's first
-second (909); on an EQ page its bands as an EQ plugin draws them (each a numbered dot with its own faint curve, the
+second (909), zoomed so its body fills the height (the zoom at the right, X2, X3: the tick at the start may run into
+the edge); on an EQ page its bands as an EQ plugin draws them (each a numbered dot with its own faint curve, the
 band the knobs turn lit, their sum the bright line) over the spectrum after the next distortion, where its sweet
 spots show (on P.EQ the punch's, on GRP.A the spectrum after the clipper); on a distortion page the spectrum after it;
 on PNCH the first 50 ms, the whole kick faint and the punch bright over it.

@@ -1,9 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only AND MPL-2.0
  * Copyright (C) 2026 Presethead. text_cat, int_text and app_say are from fm1-base's template (template/app.c),
  * Copyright (C) 2026 Charles Vestal, MPL-2.0 (base/LICENSE); the rest is GPL-3.0-only (LICENSE). */
-/* GABBERKIX: a kick designer for the FM-1. The midbody so far: a synthesized 909, a four-band parametric EQ, a
- * distortion, a four-band EQ, a second distortion and a two-band EQ, then a limiter (app/kick/kick.h), played by PLAY (a kick on every beat at the root, G1) and by the keys and MIDI notes (pitched, an octave down to an
- * octave up).
+/* GABBERKIX: a kick designer for the FM-1. Two layers into a group: the midbody (a synthesized 909, an EQ, a
+ * distortion, a second EQ, a second distortion, an EQ after them) and the punch (the hard tick at the start of a kick),
+ * pressed together in group A's clipper, then a limiter (app/kick/kick.h); played by PLAY (a kick on every beat at the
+ * root, G1) and by the keys and MIDI notes (pitched, an octave down to an octave up).
  *
  * The panel:
  *   SELECT       the page: 909, EQ, D1, EQ2, D2, POST (the midbody), PNCH, P.EQ (the punch), GRP.A, and round
@@ -201,6 +202,7 @@ static struct {
     uint32_t wave_at;                    /* not before (a knob turning fast redraws it now and then) */
     uint8_t wave_lo[240], wave_hi[240];  /* the picture: each column's lowest and highest sample, 0..80 */
     uint8_t pwave_lo[240], pwave_hi[240];   /* PNCH: the punch alone */
+    uint8_t zoom10;                      /* the 909 picture's zoom, x10 (10: none) */
     uint32_t wave_ms;                    /* the kick's length; 0: longer than the picture's second */
     float spec[SPEC_BINS];               /* the kick's spectrum, dB under its loudest bin */
     int band[KE_N];                      /* the band K2..K4 turn on each EQ page */
@@ -590,7 +592,8 @@ void app_input_only(void) { input(); }
 static void wave_make(void)
 {
     static kick_kit_t e;
-    static float buf[256];
+    static float buf[256], flo[240], fhi[240];   /* each column's lowest and highest sample, before the zoom */
+    float z;
     static float gk[SPEC_BINS], g1[SPEC_BINS], g2[SPEC_BINS];
     const kick_coefs_t *c = &coefs[coefs_cur];
     const page_t *pg = &PAGES[ui.page];
@@ -607,7 +610,7 @@ static void wave_make(void)
     for (pass = 0; pass < 1 + pv; pass++) {
         uint32_t col = 0, at = 0, per = pv ? KICK_RATE / 4800u : KICK_RATE / 240u, len = pv ? per * 240u : KICK_RATE;
         uint8_t *wl = pass ? ui.pwave_lo : ui.wave_lo, *wh = pass ? ui.pwave_hi : ui.wave_hi;
-        float lo = 0.0f, hi = 0.0f;
+        float lo = 0.0f, hi = 0.0f, top = 0.0f;
         kick_kit_reset(&e);
         e.tap = pv && !pass ? KT_ALL : pg->tap;   /* the spectrum where this page listens */
         kick_kit_trigger(&e, c, 0);
@@ -631,8 +634,10 @@ static void wave_make(void)
                 if (s > hi)
                     hi = s;
                 if (++at == per) {
-                    wl[col] = (uint8_t)((1.0f - lo) * (WAVE_H / 2 - 1) + 0.5f);
-                    wh[col] = (uint8_t)((1.0f - hi) * (WAVE_H / 2 - 1) + 0.5f);
+                    flo[col] = lo;
+                    fhi[col] = hi;
+                    if (col >= 3u && (-lo > top || hi > top))   /* the body's peak: from 12 ms, past the tick */
+                        top = -lo > hi ? -lo : hi;
                     col++;
                     at = 0;
                     lo = hi = 0.0f;
@@ -640,7 +645,27 @@ static void wave_make(void)
             }
         }
         for (; col < 240u; col++)
-            wl[col] = wh[col] = WAVE_H / 2 - 1;
+            flo[col] = fhi[col] = 0.0f;
+        /* the 909 page zooms in so the body fills the height (the tick may run into the edge); PNCH shows its two
+           layers at the same scale, unzoomed */
+        z = 1.0f;
+        if (!pv) {
+            static const float STEPS[] = {8.0f, 6.0f, 4.0f, 3.0f, 2.0f, 1.5f};
+            uint32_t k;
+            for (k = 0; k < sizeof STEPS / sizeof STEPS[0] && top > 0.0f; k++)
+                if (top * STEPS[k] <= 1.0f) {
+                    z = STEPS[k];
+                    break;
+                }
+            ui.zoom10 = (uint8_t)(z * 10.0f + 0.5f);
+        }
+        for (col = 0; col < 240u; col++) {
+            float l = flo[col] * z, h = fhi[col] * z;
+            l = l < -1.0f ? -1.0f : l;
+            h = h > 1.0f ? 1.0f : h;
+            wl[col] = (uint8_t)((1.0f - l) * (WAVE_H / 2 - 1) + 0.5f);
+            wh[col] = (uint8_t)((1.0f - h) * (WAVE_H / 2 - 1) + 0.5f);
+        }
         if (!pv && !kick_kit_sounding(&e))
             ui.wave_ms = n * 1000u / KICK_RATE;
     }
@@ -823,6 +848,14 @@ static void draw(void)
         cv_rect(0, 12 + WAVE_H / 2 - 1, 240, 1, C_LINE);
         for (i = 0; i < 240u; i++)
             cv_rect((int32_t)i, 12 + ui.wave_hi[i], 1, ui.wave_lo[i] - ui.wave_hi[i] + 1, C_HI);
+        if (ui.zoom10 > 10u) {                   /* the zoom: "X3", "X1.5" */
+            t[0] = 'X';
+            t[1] = (char)('0' + ui.zoom10 / 10u);
+            t[2] = '.';
+            t[3] = (char)('0' + ui.zoom10 % 10u);
+            t[ui.zoom10 % 10u ? 4 : 2] = 0;
+            cv_text(232 - text_w(&FONT_XS, t), 13, &FONT_XS, t, C_GRAY);
+        }
         break;
     }
     note_text(0, t);
@@ -906,6 +939,8 @@ int app_expect(const char *what, int *got)
         *got = (int)preset_saves;
     else if (!strcmp(what, "used"))
         *got = presets.used;
+    else if (!strcmp(what, "zoom"))      /* the 909 picture's zoom, x10 */
+        *got = ui.zoom10;
     else if (!strcmp(what, "throws"))    /* the dice: how often thrown; the last kick's loudness, dBFS */
         *got = (int)dice_throws;
     else if (!strcmp(what, "dice_db"))
