@@ -54,7 +54,7 @@ leaves the EQs more to do.
 - **PERF**, a page to play on while the kick runs, as on a console: three peaks just before TOTAL (as if they were
   TOTAL's own bands; TOTAL keeps its four), HEIGHT for all three (0: none) and PEAK1–PEAK3 each its frequency, to
   sweep through the kick's screaming middle; on the second row DRIVE moves both distortions' drive by ±12 dB, LENGTH
-  the 909's DECAY by ±50 %. They are saved with the preset.
+  the 909's DECAY by ±50 %. They are saved with the preset; ARP sets them back to neutral.
 - **ENV**: an envelope over the whole kick: a line through four points, ATTACK at the start, BODY, MIDDLE and TAIL
   where they are set (>BODY, >MID, >TAIL, the second row), each -24 to +12 dB; it glides from one to the next, then
   stays at the tail's. All at 0 dB: none.
@@ -68,10 +68,11 @@ bias. The 909 gets a SWEEP of 1–5 octaves, a CLICK of 0–80 % and a DECAY of 
 TUNE, SW.T, HOLD and LEVEL stay). The punch is off one time in two (towards the oldschool gabber kick); else it gets a
 P.GAIN of -12 to +6 dB, a P.HOLD of 0–10 ms, a P.DECAY of 1–200 ms (every length as likely), a P.TUNE of ±12 and its
 own curve on P.EQ (its SRC and P.DRV stay, and so does group A). The sub gets an X.FREQ of 60–200 Hz, an S.GAIN of -3
-to +6 dB, an S.HOLD of 0–100 ms and, two times in three, an S.DECAY of 150–1500 ms (else OPEN); POST and TOTAL go back
-to a new kick's (a colour that suits one throw may not suit the next). NOISE is off one time in two, else 1–20 %; PERF
-and ENV stay. Then the kick is rendered once, measured after the limiter, and DIST2's OUT set so it is as loud as a
-new kick: never soft, never silent. The screen says RANDOM ... while it throws. SEL + ARP takes the last throw back.
+to +6 dB, an S.HOLD of 0–100 ms and, two times in three, an S.DECAY of 150–1500 ms (else OPEN); POST, TOTAL and PERF
+go back to a new kick's (a colour that suits one throw may not suit the next). NOISE is off one time in two, else 1–20
+%; ENV stays. Then the kick is rendered once, measured after the limiter, and DIST2's OUT set so it is as loud as a
+new kick: never soft, never silent. The screen says RANDOM, mid-screen, while it throws. SEL + ARP takes the last
+throw back.
 
 A new kick is a classic gabber kick at once: DIST1 a soft TANH at 12 dB, DIST2 a GABBER at 6 dB with its OUT at -9 dB,
 its own tick on top (SELF, 8 ms, +6 dB), group A pushed 6 dB into a hard clip, its OUT at -6 dB, split at 120 Hz with
@@ -144,6 +145,12 @@ in the FM-1's flash, outside the firmware: they survive a restart and an update.
 audio); parameters are only ever added at the end of the list, so a preset saved now still loads in a later version. A
 preset saved before the punch loads with no punch and group A a straight wire, one saved before the sub with no split
 and TOTAL a straight wire, one saved before NOISE, PERF and ENV with all three neutral: each sounds as it did.
+
+## The splash
+
+At power-on the FM-1 shows the logo (`assets/splash.png`, 240 × 240) and the version. To change it: a new 240 × 240
+PNG there, then `python -I tools/make_splash.py assets/splash.png app/splash.inc` (16 colours, two pixels to a
+byte: 28.8 KB of flash).
 
 ## Building and testing
 

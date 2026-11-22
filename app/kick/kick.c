@@ -1031,6 +1031,10 @@ int kick_randomize(kick_params_t *p, uint32_t *seed, float *best_db)
         p->v[i] = d.v[i];
     for (i = KP_TEQ; i <= KP_T_OUT; i++)
         p->v[i] = d.v[i];
+    for (i = KP_PF_FREQ; i <= KP_PF_LENGTH; i++)   /* and PERF: each throw played from the middle */
+        p->v[i] = d.v[i];
+    p->v[KP_PF_FREQ2] = d.v[KP_PF_FREQ2];
+    p->v[KP_PF_FREQ3] = d.v[KP_PF_FREQ3];
     for (tries = 1; tries <= RND_TRIES; tries++) {
         float db = -120.0f;
         int k;

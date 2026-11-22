@@ -559,6 +559,8 @@ int main(void)
             p.v[KP_POST + KB_GAIN] = 12;         /* a colour from the kick before */
             p.v[KP_TEQ + KB_GAIN] = -9;
             p.v[KP_T_PUSH] = 20;
+            p.v[KP_PF_AMOUNT] = 18;
+            p.v[KP_PF_FREQ2] = 2500;
             tries = kick_randomize(&p, &seed, NULL);
             throws += tries;
             if (tries > most)
@@ -591,6 +593,11 @@ int main(void)
                 for (i2 = KP_TEQ; i2 <= KP_T_OUT; i2++)
                     if (p.v[i2] != d.v[i2])
                         tame++;
+                for (i2 = KP_PF_FREQ; i2 <= KP_PF_LENGTH; i2++)
+                    if (p.v[i2] != d.v[i2])
+                        tame++;
+                if (p.v[KP_PF_FREQ2] != d.v[KP_PF_FREQ2] || p.v[KP_PF_FREQ3] != d.v[KP_PF_FREQ3])
+                    tame++;
             }
             if (p.v[KP_P_LEVEL] < -12 || p.v[KP_P_LEVEL] > 6 || p.v[KP_P_DECAY] < 1 || p.v[KP_P_DECAY] > 200 ||
                 p.v[KP_P_HOLD] > 10 || abs(p.v[KP_P_TUNE]) > 12 || p.v[KP_P_DRIVE] != 0)
@@ -608,7 +615,7 @@ int main(void)
                     tame++;
         }
         snprintf(t, sizeof t, "300 throws of the dice: %.1f .. %.1f dBFS a beat (a new kick: -11), none under -14 or "
-                 "over -8 (%d, %d), every band 9 dB or more, the 909, the punch and the sub in their ranges, the root's body kept, EQ2 not shrill, POST and TOTAL a new kick's (%d not); %.2f throws a kick, %d at most",
+                 "over -8 (%d, %d), every band 9 dB or more, the 909, the punch and the sub in their ranges, the root's body kept, EQ2 not shrill, POST, TOTAL and PERF a new kick's (%d not); %.2f throws a kick, %d at most",
                  lo, hi, soft, loud, tame, throws / 300.0, most);
         check(!soft && !loud && !tame, t);
         snprintf(t, sizeof t, "the dice's DECAY, 200..900 ms evenly: %ld ms on average (550), %d of 300 under 550 ms",

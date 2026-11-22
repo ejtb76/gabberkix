@@ -1,0 +1,3 @@
+# The splash: the logo and the version (the simulator's boot skips it: drawn on request)
+splash
+shot splash.png

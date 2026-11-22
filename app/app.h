@@ -8,6 +8,7 @@
 
 #define APP_NAME "GABBERKIX"
 #define APP_SPLASH_RGB RGB(232, 76, 60)
+#define APP_SPLASH                       /* the logo (assets/splash.png) and the version: app_splash, app.c */
 #define APP_PALETTE 3u                   /* gfx.c PALETTES: red */
 #define APP_BLOCK 256u                   /* frames per audio block: 5.8 ms at 44.1 kHz */
 
@@ -29,3 +30,5 @@ void app_say(const char *a, const char *b);   /* a short message on the screen a
  * kick's), page, row, pN (parameter N's value) */
 #define APP_HOST_EXPECT
 int app_expect(const char *what, int *got);
+#define APP_HOST_CMD                     /* "splash": the boot screen (the simulator's boot skips it) */
+int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, const char *d);

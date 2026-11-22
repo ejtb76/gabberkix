@@ -486,11 +486,27 @@ static void page_to(int p)
     ui.page = p;
     ui.focus = -1;
     app_say("PAGE", PAGES[p].name);
+    ui.msg_until = plat_ms() + 3000u;    /* the page's name stays a while */
 }
 
 /* ARP: throw the dice (the 909's sweep, click and decay, the EQs, the distortions; the rest stays); SEL + ARP: back
  * to before it */
 static void draw(void);
+
+static void busy_draw(void)              /* "RANDOM ...", big, in a box mid-screen, over whatever shows */
+{
+    int32_t w;
+    cv_begin(200, 64, C_BLACK);
+    cv_rect(0, 0, 200, 2, C_HI);
+    cv_rect(0, 62, 200, 2, C_HI);
+    cv_rect(0, 0, 2, 64, C_HI);
+    cv_rect(198, 0, 2, 64, C_HI);
+    w = text_w(&APP_BIG_FONT, "RANDOM");
+    cv_text(100 - w / 2, 10, &APP_BIG_FONT, "RANDOM", C_WHITE);
+    w = text_w(&FONT_B, "...");
+    cv_text(100 - w / 2, 40, &FONT_B, "...", C_HI);
+    cv_blit(20, 88);
+}
 
 static void dice_throw(int undo)
 {
@@ -505,12 +521,7 @@ static void dice_throw(int undo)
         float db;
         params_undo = params;
         has_undo = 1;
-        ui.msg[0][0] = 0;                /* "RANDOM ..." at once: the throw takes a moment (a beat rendered, or */
-        text_cat(ui.msg[0], "RANDOM");   /* two) */
-        ui.msg[1][0] = 0;
-        text_cat(ui.msg[1], "...");
-        ui.msg_until = plat_ms() + 5000u;
-        draw();
+        busy_draw();                     /* at once, mid-screen: the throw takes a moment (a beat rendered, or two) */
         dice_seed ^= plat_ms() * 2654435761u + ++dice_throws;
         kick_randomize(&params, &dice_seed, &db);
         preset_edited = 1;
@@ -993,6 +1004,31 @@ static void draw(void)
     cv_blit(0, 120);
 }
 
+/* the splash: the logo (assets/splash.png, 240 x 240, made app/splash.inc by tools/make_splash.py: a palette of 16
+ * RGB565 colours and its indices two to a byte) and the version, drawn in two bands of 120 lines */
+#include "splash.inc"
+void app_splash(void)
+{
+    uint32_t band, y, x;
+    for (band = 0; band < 2u; band++) {
+        cv_begin(240, 120, C_BLACK);
+        for (y = 0; y < 120u; y++)
+            for (x = 0; x < 240u; x++) {
+                uint32_t at = (band * 120u + y) * 240u + x;   /* the pixel; its byte, its nibble (left: high) */
+                uint8_t b = SPLASH_4BPP[at >> 1];
+                cv_pset((int32_t)x, (int32_t)y, SPLASH_PAL[at & 1u ? b & 15u : b >> 4]);
+            }
+        if (band == 1u) {                /* the version, at the bottom */
+            char v[24] = "";
+            if (APP_VERSION[0] >= '0' && APP_VERSION[0] <= '9')
+                text_cat(v, "V");
+            text_cat(v, APP_VERSION);
+            cv_text((240 - text_w(&FONT_XS, v)) / 2, 104, &FONT_XS, v, C_GRAY);
+        }
+        cv_blit(0, band * 120u);
+    }
+}
+
 void app_ui_init(void)
 {
     lcd_fill(0, 0, 240, 240, C_BLACK);
@@ -1031,6 +1067,16 @@ void app_frame(void)
 }
 
 #ifdef PLAT_HOST
+int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, const char *d)
+{
+    (void)a, (void)b, (void)c, (void)d;
+    if (!strcmp(cmd, "splash")) {
+        app_splash();
+        return 1;
+    }
+    return 0;
+}
+
 int app_expect(const char *what, int *got)
 {
     if (!strcmp(what, "playing"))
