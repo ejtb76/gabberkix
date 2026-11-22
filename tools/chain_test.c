@@ -7,9 +7,11 @@
  *   - extremes (Q 30 and +30 dB from 20 Hz to 19.8 kHz, both distortions at 60 dB): finite, and rings out
  *   - a new kick is about as loud as the clean 909; the master limiter keeps every kick under -0.3 dBFS
  *   - the distortions: nearly transparent at a low push, squashed at a high one; the screen's taps
+ *   - the dice (kick_randomize): extreme EQs, and a kick as loud as a new one, never soft or silent
  * Build and run: tools/build_render.sh, then build/chain_test (exit 1 on a failure). */
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "kick.h"
 
@@ -139,8 +141,7 @@ int main(void)
 
     /* the band curves add up to the curve (what the screen draws: each band, and their sum) */
     {
-        static const int F[8] = {41, 59, 205, 368, 455, 840, 3600, 6680}, G[8] = {-30, 24, -30, 10, 15, -30, -26, -2};
-        static const int Q[8] = {300, 80, 400, 300, 70, 2500, 400, 100};
+        static const int F[4] = {41, 59, 205, 840}, G[4] = {-30, 24, -30, -30}, Q[4] = {300, 80, 400, 2500};
         int eq;
         for (eq = 0; eq < KE_N; eq++) {
             double worst = 0.0, hz;
@@ -195,8 +196,8 @@ int main(void)
         p.v[KP_EQ1 + KB_N * b + KB_Q] = 3000;
     }
     p.v[KP_EQ1 + KB_FREQ] = 20;
-    p.v[KP_EQ1 + KB_N * 7 + KB_FREQ] = 19800;
-    finite_and_done(&p, "EQ: eight bands at +30 dB, Q 30 (20 Hz .. 19.8 kHz)");
+    p.v[KP_EQ1 + KB_N * (KICK_EQ1_BANDS - 1) + KB_FREQ] = 19800;
+    finite_and_done(&p, "EQ: every band at +30 dB, Q 30 (20 Hz .. 19.8 kHz)");
     for (b = 0; b < KICK_EQ2_BANDS; b++) {
         p.v[KP_EQ2 + KB_N * b + KB_GAIN] = 30;
         p.v[KP_EQ2 + KB_N * b + KB_Q] = 3000;
@@ -300,6 +301,39 @@ int main(void)
             if (fabs(buf[i] - ref[i]) > d)
                 d = fabs(buf[i] - ref[i]);
         check(d == 0.0, "the tap after DIST1 is the chain up to DIST1 (EQ2 and DIST2 left out)");
+    }
+    /* the dice: 300 throws; every kick as loud as a new one (never soft, never silent), its EQs extreme */
+    {
+        uint32_t seed = 12345u;
+        int k, soft = 0, loud = 0, tame = 0, throws = 0, most = 0;
+        float lo = 0.0f, hi = -120.0f;
+        char t[200];
+        for (k = 0; k < 300; k++) {
+            int j, tries;
+            float db;
+            kick_params_default(&p);
+            tries = kick_randomize(&p, &seed);
+            throws += tries;
+            if (tries > most)
+                most = tries;
+            kick_cook(&p, &c);
+            db = kick_loudness(&c);
+            if (db < lo || k == 0)
+                lo = db;
+            if (db > hi)
+                hi = db;
+            if (db < -14.0f)
+                soft++;
+            if (db > -8.0f)
+                loud++;
+            for (j = 0; j < KICK_EQ1_BANDS; j++)
+                if (abs(p.v[KP_EQ1 + KB_N * j + KB_GAIN]) < 9 || abs(p.v[KP_EQ2 + KB_N * j + KB_GAIN]) < 9)
+                    tame++;
+        }
+        snprintf(t, sizeof t, "300 throws of the dice: %.1f .. %.1f dBFS a beat (a new kick: -11), none under -14 or "
+                 "over -8 (%d, %d), every band 9 dB or more (%d not); %.2f throws a kick, %d at most",
+                 lo, hi, soft, loud, tame, throws / 300.0, most);
+        check(!soft && !loud && !tame, t);
     }
     if (fails)
         printf("%d failed\n", fails);

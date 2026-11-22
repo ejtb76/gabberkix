@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only AND MPL-2.0
  * Copyright (C) 2026 Presethead. text_cat, int_text and app_say are from fm1-base's template (template/app.c),
  * Copyright (C) 2026 Charles Vestal, MPL-2.0 (base/LICENSE); the rest is GPL-3.0-only (LICENSE). */
-/* GABBERKIX: a kick designer for the FM-1. The midbody so far: a synthesized 909, an eight-band parametric EQ, a
+/* GABBERKIX: a kick designer for the FM-1. The midbody so far: a synthesized 909, a four-band parametric EQ, a
  * distortion, a four-band EQ, a second distortion and a two-band EQ, then a limiter (app/kick/kick.h), played by PLAY (a kick on every beat at the root, G1) and by the keys and MIDI notes (pitched, an octave down to an
  * octave up).
  *
@@ -10,6 +10,8 @@
  *   HOME         909      EDIT  EQ (again: the next band)            LFO  EQ2 (again: the next band)
  *   FX           DIST1 (again: DIST2, and back)                      GLO  POST (again: the other band)
  *   K1..K4       the page's first four parameters; with SEL held, the next four
+ *   ARP          throw the dice: extreme curves on both EQs, new distortions, as loud as a new kick
+ *   SEL + ARP    undo the last throw
  *   PRESETS      tempo, 60..300 BPM
  *   PLAY         a kick on every beat, or stop
  *   keys         a kick at that key's pitch: G4 (the middle G) is the root, G3 an octave down, G5 an octave up
@@ -63,6 +65,10 @@ static const page_t PAGES[] = {
 
 /* --------------------------------------------------------------- state --- */
 static kick_params_t params;             /* what the player set (the main loop's) */
+static kick_params_t params_undo;        /* before the last throw of the dice (SEL + ARP) */
+static uint8_t has_undo;
+static uint32_t dice_seed, dice_throws;
+static int dice_db;                      /* the last throw's loudness, dBFS (the host's checks) */
 static kick_coefs_t coefs[2];            /* cooked from params: the main loop writes one, then flips */
 static volatile uint8_t coefs_cur;
 static kick_engine_t engine;             /* the audio interrupt's */
@@ -283,7 +289,7 @@ static int slot_param(int slot)          /* a slot's parameter: PS_BAND, -1 none
     return p;
 }
 
-static char band_name(int eq, int b) { return (char)((eq == KE_POST ? 'A' : '1') + b); }   /* 1..8, 1..4, A B */
+static char band_name(int eq, int b) { return (char)((eq == KE_POST ? 'A' : '1') + b); }   /* 1..4, A B */
 
 static void band_text(char *t)
 {
@@ -332,6 +338,33 @@ static void page_to(int p)
     app_say("PAGE", PAGES[p].name);
 }
 
+/* ARP: throw the dice (the EQs and distortions; the 909 and POST stay); SEL + ARP: back to before it */
+static void dice_throw(int undo)
+{
+    char t[12];
+    if (undo) {
+        if (!has_undo)
+            return;
+        params = params_undo;
+        has_undo = 0;
+        app_say("UNDO", "");
+    } else {
+        kick_coefs_t c;
+        params_undo = params;
+        has_undo = 1;
+        dice_seed ^= plat_ms() * 2654435761u + ++dice_throws;
+        kick_randomize(&params, &dice_seed);
+        kick_cook(&params, &c);
+        dice_db = (int)(kick_loudness(&c) - 0.5f);
+        int_text(dice_db, t);
+        text_cat(t, " dB");
+        app_say("RANDOM", t);
+    }
+    cook();
+    ui.focus = -1;
+    ui.wave_dirty = 1;
+}
+
 static void input(void)
 {
     uint32_t keys = plat_keys(), btn = plat_buttons(), k;
@@ -349,6 +382,8 @@ static void input(void)
         }
         app_say("PLAY", playing ? "ON" : "STOP");
     }
+    if ((btn >> B_ARP & 1u) && !(ui.btn >> B_ARP & 1u))
+        dice_throw(row);
     for (k = 0; k < NB; k++)                     /* the page shortcuts */
         if ((btn >> k & 1u) && !(ui.btn >> k & 1u)) {
             int p = -1;
@@ -679,6 +714,10 @@ int app_expect(const char *what, int *got)
         *got = ui.band[KE_EQ1] + 1;
     else if (!strcmp(what, "band2"))
         *got = ui.band[KE_EQ2] + 1;
+    else if (!strcmp(what, "throws"))    /* the dice: how often thrown; the last kick's loudness, dBFS */
+        *got = (int)dice_throws;
+    else if (!strcmp(what, "dice_db"))
+        *got = dice_db;
     else if (!strcmp(what, "pband"))
         *got = ui.band[KE_POST] + 1;
     else if (what[0] == 'p' && what[1] >= '0' && what[1] <= '9')

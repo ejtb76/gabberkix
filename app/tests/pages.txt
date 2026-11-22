@@ -1,49 +1,50 @@
 # The midbody chain's pages: SELECT, the shortcuts (HOME, EDIT, FX, LFO, GLO), turning while PLAY runs, the pictures.
-# Pages: 0 909, 1 EQ, 2 DIST1, 3 EQ2, 4 DIST2, 5 POST. Parameters: EQ band b (0..7) FREQ 7+3b, GAIN 8+3b, Q 9+3b;
-# DIST1 31..35 (TYPE DRIVE BIAS OUT MIX); EQ2 band b (0..3) FREQ 36+3b, GAIN 37+3b, Q 38+3b; DIST2 48..52;
-# POST A 53..55, B 56..58. An EQ page: K1 band, K2 gain, K3 Q, K4 frequency.
+# Pages: 0 909, 1 EQ, 2 DIST1, 3 EQ2, 4 DIST2, 5 POST. Parameters: EQ band b (0..3) FREQ 7+3b, GAIN 8+3b, Q 9+3b;
+# DIST1 19..23 (TYPE DRIVE BIAS OUT MIX); EQ2 band b (0..3) FREQ 24+3b, GAIN 25+3b, Q 26+3b; DIST2 36..40;
+# POST A 41..43, B 44..46. An EQ page: K1 band, K2 gain, K3 Q, K4 frequency.
 master 4096
 wait 300
 wav chain.wav
 tap PLAY
 wait 400
-# EDIT: the EQ page, band 1; again: the next band, round from 8 to 1; K1 stops at 8
+# EDIT: the EQ page, band 1; again: the next band, round from 4 to 1; K1 stops at 4
 tap EDIT
 expect page 1
 expect band 1
 tap EDIT
 expect band 2
 turn K1 10
-expect band 8
+expect band 4
 tap EDIT
 expect band 1
-# band 1 (40 Hz): -30 dB, narrow
+# band 1 (50 Hz): down to about 40 Hz, -30 dB, narrow
+turn K4 -7
 turn K2 -30
 expect p8 -30
 turn K3 40
 expect p9 >250
-# band 2 (80 Hz): down to about 60 Hz, +24 dB, wide
+# band 2 (100 Hz): down to about 60 Hz, +24 dB, wide
 turn K1 1
 expect band 2
-turn K4 -9
+turn K4 -17
 turn K2 24
 expect p11 24
 turn K3 -6
-# band 6 (1.25 kHz): down to about 840 Hz, a very narrow notch
-turn K1 4
-expect band 6
-turn K4 -13
+# band 4 (500 Hz): up to about 840 Hz, a very narrow notch
+turn K1 2
+expect band 4
+turn K4 17
 turn K2 -30
 turn K3 110
-expect p23 -30
+expect p17 -30
 wait 800
 shot eq.png
 # FX: DIST1 (TANH 12 dB on a new kick); more push
 tap FX
 expect page 2
-expect p31 1
+expect p19 1
 turn K2 12
-expect p32 24
+expect p20 24
 wait 800
 shot dist1.png
 # LFO: EQ2; band 2 (300 Hz) up 20 dB, narrow; LFO again: band 3
@@ -53,7 +54,7 @@ expect band2 1
 turn K1 1
 expect band2 2
 turn K2 20
-expect p40 20
+expect p28 20
 turn K3 30
 tap LFO
 expect band2 3
@@ -64,9 +65,9 @@ tap FX
 expect page 2
 tap FX
 expect page 4
-expect p48 3
+expect p36 3
 turn K1 -1
-expect p48 2
+expect p36 2
 wait 800
 shot dist2.png
 tap FX
@@ -76,21 +77,44 @@ tap HOME
 expect page 0
 tap EDIT
 expect page 1
-expect band 6
+expect band 4
 # GLO: POST, band A; down. GLO again: band B; up. K1 back to A
 tap GLO
 expect page 5
 expect pband 1
 turn K2 -9
-expect p54 -9
+expect p42 -9
 tap GLO
 expect pband 2
 turn K2 6
-expect p57 6
+expect p45 6
 turn K1 -1
 expect pband 1
 wait 800
 shot post.png
+# ARP: the dice; as loud as a new kick (-11 dBFS a beat), POST untouched; SEL + ARP: undo, the EQ as it was (band 1
+# at -30 dB, band 2 at +24 dB); undo again: nothing (one throw back); ARP again
+tap ARP
+expect throws 1
+expect dice_db >-14
+expect dice_db <-8
+expect p42 -9
+wait 800
+shot dice1.png
+press SEL
+tap ARP
+release SEL
+expect p8 -30
+expect p11 24
+expect p42 -9
+press SEL
+tap ARP
+release SEL
+expect p8 -30
+tap ARP
+expect throws 2
+wait 400
+shot dice2.png
 # SELECT walks every page, round: from POST to 909, from 909 back to POST
 turn SELECT 1
 expect page 0

@@ -12,6 +12,9 @@
 #define F_MIN 20.0f
 #define F_MAX (0.45f * KICK_RATE)        /* 19.8 kHz: the SVF's tan stays far from its pole */
 #define DC_R 0.99929f                    /* the DC blockers after the distortions: 5 Hz */
+#define RND_LOUD -11.0f                  /* kick_randomize: a new kick's loudness, dBFS, */
+#define RND_SPREAD 1.5f                  /* this close, */
+#define RND_TRIES 8                      /* in at most so many throws */
 #define D2_OUT -9                        /* DIST 2's OUT on a new kick: as loud as the clean 909 (chain_test) */
 
 /* ------------------------------------------------------------ parameters --- */
@@ -39,14 +42,10 @@ static const kick_param_info_t INFO[KP_COUNT] = {
     [KP_DECAY] = {"DECAY", 10, 4000, 450, KU_MS, 0, 0},
     [KP_CLICK] = {"CLICK", 0, 100, 25, KU_PCT, 2, 0},
     [KP_LEVEL] = {"LEVEL", -36, 12, 0, KU_DB, 1, 0},
-    BAND(KP_EQ1 + 0 * KB_N, "1", 40),
-    BAND(KP_EQ1 + 1 * KB_N, "2", 80),
-    BAND(KP_EQ1 + 2 * KB_N, "3", 160),
-    BAND(KP_EQ1 + 3 * KB_N, "4", 320),
-    BAND(KP_EQ1 + 4 * KB_N, "5", 640),
-    BAND(KP_EQ1 + 5 * KB_N, "6", 1250),
-    BAND(KP_EQ1 + 6 * KB_N, "7", 2500),
-    BAND(KP_EQ1 + 7 * KB_N, "8", 5000),
+    BAND(KP_EQ1 + 0 * KB_N, "1", 50),          /* low: before the first distortion the lows matter most */
+    BAND(KP_EQ1 + 1 * KB_N, "2", 100),
+    BAND(KP_EQ1 + 2 * KB_N, "3", 200),
+    BAND(KP_EQ1 + 3 * KB_N, "4", 500),
     DIST(KP_D1, "1", KDT_TANH, 12, 0),       /* a new kick: a soft drive, then a gabber clip */
     BAND(KP_EQ2 + 0 * KB_N, "2.1", 100),
     BAND(KP_EQ2 + 1 * KB_N, "2.2", 300),
@@ -513,4 +512,98 @@ uint32_t kick_render_one(const kick_coefs_t *c, int semis, float *out, uint32_t 
         done += n;
     }
     return done;
+}
+
+/* ------------------------------------------------------------- the dice --- */
+/* how loud a kick is: one beat at 160 BPM through the master's limiter, its mean square, dBFS */
+float kick_loudness(const kick_coefs_t *c)
+{
+    static kick_engine_t e;
+    static float blk[256];
+    float env = 0.0f, sum = 0.0f;
+    uint32_t n = 0, beat = KICK_RATE * 60u / 160u, i;
+    kick_engine_reset(&e);
+    kick_trigger(&e, c, 0);
+    while (n < beat) {
+        uint32_t m = beat - n < 256u ? beat - n : 256u;
+        kick_render(&e, c, blk, m);
+        kick_master(&env, blk, m);
+        for (i = 0; i < m; i++)
+            sum += blk[i] * blk[i];
+        n += m;
+    }
+    sum /= (float)beat;
+    return sum > 1e-12f ? 3.0103f * fm_log2f(sum) : -120.0f;
+}
+
+static uint32_t dice(uint32_t *s)        /* 24 random bits */
+{
+    *s = *s * 1664525u + 1013904223u;
+    return *s >> 8;
+}
+static int dice_in(uint32_t *s, int lo, int hi) { return lo + (int)(dice(s) % (uint32_t)(hi - lo + 1)); }
+static int dice_log(uint32_t *s, int lo, int hi)   /* spread evenly over octaves */
+{
+    float u = (float)(dice(s) & 0xFFFFu) * (1.0f / 65535.0f);
+    return (int)((float)lo * fm_exp2f(u * fm_log2f((float)hi / (float)lo)) + 0.5f);
+}
+
+/* an EQ: every band an extreme peak or dip, as an EQ plugin is drawn for a kick: cuts deep and narrow, boosts wide */
+static void dice_eq(kick_params_t *p, int eq, int flo, int fhi, uint32_t *s)
+{
+    int b, base = kick_eq_param(eq);
+    for (b = 0; b < kick_eq_bands(eq); b++) {
+        int16_t *v = &p->v[base + KB_N * b];
+        int cut = dice_in(s, 0, 1);
+        v[KB_FREQ] = (int16_t)dice_log(s, flo, fhi);
+        v[KB_GAIN] = (int16_t)(cut ? -dice_in(s, 15, 30) : dice_in(s, 9, 24));
+        v[KB_Q] = (int16_t)(cut ? dice_log(s, 200, 2500) : dice_log(s, 50, 400));
+    }
+}
+
+static void dice_dist(kick_params_t *p, int d, int drive_lo, int drive_hi, uint32_t *s)
+{
+    p->v[d + KD_TYPE] = (int16_t)dice_in(s, KDT_TANH, KDT_N - 1);
+    p->v[d + KD_DRIVE] = (int16_t)dice_in(s, drive_lo, drive_hi);
+    p->v[d + KD_BIAS] = (int16_t)(dice_in(s, 0, 2) ? 0 : dice_in(s, -10, 10) * 5);   /* a bias one time in three */
+    p->v[d + KD_OUT] = 0;
+    p->v[d + KD_MIX] = 100;
+}
+
+int kick_randomize(kick_params_t *p, uint32_t *seed)
+{
+    kick_params_t q, best;
+    kick_coefs_t c;
+    float best_off = 1e9f;
+    int tries;
+    for (tries = 1; tries <= RND_TRIES; tries++) {
+        float db = -120.0f;
+        int k;
+        q = *p;
+        dice_eq(&q, KE_EQ1, 30, 1000, seed);   /* before the first distortion the lows matter most */
+        dice_dist(&q, KP_D1, 6, 30, seed);
+        dice_eq(&q, KE_EQ2, 100, 8000, seed);  /* the overtones it made */
+        dice_dist(&q, KP_D2, 0, 15, seed);     /* milder: a heavy last clip would flatten what the EQs did */
+        for (k = 0; k < 3; k++) {              /* DIST2's OUT to a new kick's loudness */
+            int out = q.v[KP_D2 + KD_OUT], to;
+            kick_cook(&q, &c);
+            db = kick_loudness(&c);
+            to = out + (int)(RND_LOUD - db + (RND_LOUD > db ? 0.5f : -0.5f));
+            to = to < INFO[KP_D2 + KD_OUT].min ? INFO[KP_D2 + KD_OUT].min
+                 : to > INFO[KP_D2 + KD_OUT].max ? INFO[KP_D2 + KD_OUT].max : to;
+            if (to == out)
+                break;
+            q.v[KP_D2 + KD_OUT] = (int16_t)to;
+        }
+        kick_cook(&q, &c);
+        db = kick_loudness(&c);
+        if (fm_fabsf(db - RND_LOUD) < best_off) {
+            best_off = fm_fabsf(db - RND_LOUD);
+            best = q;
+        }
+        if (best_off <= RND_SPREAD)
+            break;
+    }
+    *p = best;
+    return tries > RND_TRIES ? RND_TRIES : tries;
 }

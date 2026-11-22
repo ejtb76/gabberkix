@@ -8,7 +8,7 @@
  * the same samples). 1.0 is full scale; inside the engine the signal may go far above it, only the master stops it.
  *
  * The midbody so far:
- *   909 -> EQ (8 peaks) -> DIST 1 -> EQ 2 (4 peaks) -> DIST 2 -> POST (2 peaks)        then the master: a limiter
+ *   909 -> EQ (4 peaks) -> DIST 1 -> EQ 2 (4 peaks) -> DIST 2 -> POST (2 peaks)        then the master: a limiter
  * Extreme boosts and cuts before a distortion choose what it does; it makes overtones; the next EQ finds the sweet
  * spots among them, and the next distortion presses them together. An EQ alone changes little: EQs in a row are one
  * EQ, so the distortions between them are what make the variety. The 909 is a sine whose pitch falls from a sweep to
@@ -25,7 +25,10 @@
  *   kick_render_one(c, semis, out, max)  one whole kick from silence, offline; returns its length in samples
  *   kick_master(env, buf, n)             the master: a peak limiter at -0.3 dBFS (env: its state, 0 at the start)
  *   kick_curve(c, eq, hz)                an EQ's gain at hz, dB (KE_*: the screen)
- *   kick_band_db(c, eq, b, hz)           one of its bands' */
+ *   kick_band_db(c, eq, b, hz)           one of its bands'
+ *   kick_randomize(p, seed)              throw the dice: extreme curves on both EQs, new distortions, and DIST2's OUT
+ *                                        set so the kick is as loud as a new one (never soft or silent; main loop)
+ *   kick_loudness(c)                     a kick's loudness: one beat at 160 BPM after the limiter, dBFS */
 #ifndef KICK_H
 #define KICK_H
 #include <stdint.h>
@@ -35,7 +38,7 @@
 
 /* the EQs: each a parametric EQ of peaks (at 0 dB a band does nothing) */
 enum { KE_EQ1, KE_EQ2, KE_POST, KE_N };
-#define KICK_EQ1_BANDS 8
+#define KICK_EQ1_BANDS 4
 #define KICK_EQ2_BANDS 4
 #define KICK_POST_BANDS 2
 /* a band's three parameters, from its first */
@@ -145,5 +148,7 @@ void kick_chain(kick_engine_t *e, const kick_coefs_t *c, float *buf, uint32_t n)
                                                                                        (the tests' sines) */
 float kick_curve(const kick_coefs_t *c, int eq, float hz);
 float kick_band_db(const kick_coefs_t *c, int eq, int band, float hz);
+int kick_randomize(kick_params_t *p, uint32_t *seed);   /* the throws it took */
+float kick_loudness(const kick_coefs_t *c);
 
 #endif

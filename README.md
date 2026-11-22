@@ -13,7 +13,7 @@ Built on [fm1-base](https://github.com/charlesvestal/fm1-base) and felucca-bsp, 
 ## The sound so far
 
 ```
-909 -> EQ (8 peaks) -> DIST1 -> EQ2 (4 peaks) -> DIST2 -> POST (2 peaks) -> limiter
+909 -> EQ (4 peaks) -> DIST1 -> EQ2 (4 peaks) -> DIST2 -> POST (2 peaks) -> limiter
 ```
 
 The source is a blank 909: a sine whose pitch falls from a sweep to the root (G1, 49 Hz), a short noise click on the
@@ -23,14 +23,20 @@ before the next distortion presses them together. EQs in a row are no more than 
 them that make the variety. Before a hard clipper the low bands (40-250 Hz) matter most; a milder first distortion
 leaves the EQs more to do.
 
-- **EQ**: a parametric EQ of eight peaks, each up to ±30 dB and Q 30: wide boosts and deep, narrow cuts. There is no
+- **EQ**: a parametric EQ of four peaks, each up to ±30 dB and Q 30: wide boosts and deep, narrow cuts. There is no
   low cut on purpose: the lows are what a kick is, and what drives the distortion; a low band turned down takes some
   away. A new kick has every band at 0 dB, where it does nothing.
 - **DIST1**, **DIST2**: TANH (soft), HARD (a hard clip) or GABBER (a soft stage 12 dB hotter with a buzz of even
   harmonics, into a hard clip); drive up to 60 dB, a bias for asymmetry, out level and dry/wet mix.
-- **EQ2**: four more peaks, between the distortions.
+- **EQ2**: four more peaks, the same, between the distortions.
 - **POST**: two more peaks, after them.
 - **The master**: a peak limiter at -0.3 dBFS, then MASTER's volume.
+
+**The dice** (ARP) draw an extreme curve on both EQs, as a kick's EQ is drawn: cuts deep (15–30 dB) and narrow,
+boosts wide (9–24 dB); EQ's bands between 30 Hz and 1 kHz, where they steer the first distortion, EQ2's between 100 Hz
+and 8 kHz. Each distortion gets a type, a drive (DIST1 6–30 dB, DIST2 milder, 0–15 dB) and now and then a bias. Then
+the kick is rendered once, measured after the limiter, and DIST2's OUT set so it is as loud as a new kick: never soft,
+never silent. SEL + ARP takes the last throw back.
 
 A new kick is a classic gabber kick at once: DIST1 a soft TANH at 12 dB, DIST2 a GABBER at 6 dB with its OUT at
 -9 dB, about as loud as the clean 909 (a distorted kick is a near-square wave, far denser than a clean one). Turn an
@@ -50,6 +56,8 @@ screen are computed from the same coefficients the sound uses (`tools/chain_test
 | **FX** | DIST1; again: DIST2, and back |
 | **LFO** | The EQ2 page; again: the next band |
 | **GLO** | The POST page; again: the other band |
+| **ARP** | Throw the dice: extreme curves on both EQs and new distortions (the 909 and POST stay), at the loudness of a new kick |
+| **SEL** held + **ARP** | Undo the last throw |
 | **K1–K4** | The page's top row |
 | **SEL** held + **K1–K4** | The second row |
 | **PRESETS** | Tempo, 60–300 BPM (160 at power-on) |
@@ -63,7 +71,7 @@ The pages' knobs:
 | Page | K1–K4 | SEL held + K1–K4 |
 | --- | --- | --- |
 | **909** | SWEEP (how far above the root the pitch starts, in octaves), SW.T (how fast it falls), HOLD, DECAY (to -60 dB) | TUNE (the root, ±12 semitones from G1), CLICK, LEVEL |
-| **EQ**, **EQ2**, **POST** | BAND (1–8, 1–4, A–B), and its GAIN, Q, FREQ | |
+| **EQ**, **EQ2**, **POST** | BAND (1–4, 1–4, A–B), and its GAIN, Q, FREQ | |
 | **DIST1**, **DIST2** | TYPE, DRIVE, BIAS, OUT | MIX |
 
 Along the top, the pages as tabs, the one shown lit; each page has its own colour (909 red, EQ cyan, DIST1 magenta,
