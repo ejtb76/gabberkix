@@ -6,9 +6,10 @@
  * octave up).
  *
  * The panel:
- *   SELECT       the page: 909, EQ, DIST1, EQ2, DIST2, POST, and round
+ *   SELECT       the page: 909, EQ, D1, EQ2, D2, POST (the midbody), PNCH, P.EQ (the punch), GRP.A, and round
  *   HOME         909      EDIT  EQ (again: the next band)            LFO  EQ2 (again: the next band)
- *   FX           DIST1 (again: DIST2, and back)                      GLO  POST (again: the other band)
+ *   FX           D1 (again: D2, and back)                            GLO  POST (again: the other band)
+ *   ENV          PNCH (again: P.EQ, and back)                        SEQ  GRP.A (again: its next band)
  *   K1..K4       the page's first four parameters; with SEL held, the next four
  *   SEL + white key    load the preset on that key; SAVE + white key: save the kick there. Held, SEL and
  *                SAVE light the keys that hold a preset half, the one loaded or saved last bright
@@ -36,7 +37,7 @@
  * that band's gain, Q and frequency. Under them a picture: the kick's first second (909); an EQ's bands (each a dot,
  * its own curve faint, the sum bright) over the spectrum after the next distortion, where its sweet spots show; or
  * the spectrum after a distortion. */
-enum { V_WAVE, V_CURVE, V_SPEC };
+enum { V_WAVE, V_CURVE, V_SPEC, V_PUNCH };   /* V_PUNCH: the first 50 ms, the punch over the whole kick */
 enum { PS_NONE = -1, PS_BAND = -2, PS_FREQ = -3, PS_GAIN = -4, PS_Q = -5 };
 typedef struct {
     const char *name;
@@ -50,15 +51,20 @@ typedef struct {
 #define COLOURS(r, g, b, r2, g2, b2) RGB(r, g, b), RGB(r2, g2, b2)
 #define EQ_KNOBS {PS_BAND, PS_GAIN, PS_Q, PS_FREQ, -1, -1, -1, -1}
 #define DIST_KNOBS(d) {(d) + KD_TYPE, (d) + KD_DRIVE, (d) + KD_BIAS, (d) + KD_OUT, (d) + KD_MIX, -1, -1, -1}
-enum { PG_909, PG_EQ, PG_D1, PG_EQ2, PG_D2, PG_POST };
+enum { PG_909, PG_EQ, PG_D1, PG_EQ2, PG_D2, PG_POST, PG_PUNCH, PG_PEQ, PG_A };
 static const page_t PAGES[] = {
     [PG_909] = {"909", {KP_SWEEP, KP_SWEEP_T, KP_HOLD, KP_DECAY, KP_TUNE, KP_CLICK, KP_LEVEL, -1}, V_WAVE, -1, KT_ALL,
                 B_HOME, COLOURS(232, 76, 60, 255, 132, 112)},
     [PG_EQ] = {"EQ", EQ_KNOBS, V_CURVE, KE_EQ1, KT_D1, B_EDIT, COLOURS(60, 180, 235, 150, 225, 255)},
-    [PG_D1] = {"DIST1", DIST_KNOBS(KP_D1), V_SPEC, -1, KT_D1, B_FX, COLOURS(214, 70, 200, 255, 140, 240)},
+    [PG_D1] = {"D1", DIST_KNOBS(KP_D1), V_SPEC, -1, KT_D1, B_FX, COLOURS(214, 70, 200, 255, 140, 240)},
     [PG_EQ2] = {"EQ2", EQ_KNOBS, V_CURVE, KE_EQ2, KT_D2, B_LFO, COLOURS(110, 120, 255, 175, 185, 255)},
-    [PG_D2] = {"DIST2", DIST_KNOBS(KP_D2), V_SPEC, -1, KT_D2, B_FX, COLOURS(232, 136, 30, 255, 184, 70)},
-    [PG_POST] = {"POST", EQ_KNOBS, V_CURVE, KE_POST, KT_ALL, B_GLO, COLOURS(80, 220, 120, 150, 255, 175)},
+    [PG_D2] = {"D2", DIST_KNOBS(KP_D2), V_SPEC, -1, KT_D2, B_FX, COLOURS(232, 136, 30, 255, 184, 70)},
+    [PG_POST] = {"POST", EQ_KNOBS, V_CURVE, KE_POST, KT_MID, B_GLO, COLOURS(80, 220, 120, 150, 255, 175)},
+    [PG_PUNCH] = {"PNCH", {KP_P_SRC, KP_P_TUNE, KP_P_HOLD, KP_P_DECAY, KP_P_DRIVE, KP_P_LEVEL, -1, -1}, V_PUNCH, -1,
+                  KT_PUNCH, B_ENV, COLOURS(225, 205, 40, 255, 240, 130)},
+    [PG_PEQ] = {"P.EQ", EQ_KNOBS, V_CURVE, KE_PEQ, KT_PUNCH, B_ENV, COLOURS(40, 200, 170, 130, 245, 220)},
+    [PG_A] = {"GRP.A", {PS_BAND, PS_GAIN, PS_Q, PS_FREQ, KP_A_PUSH, KP_A_CLIP, KP_A_OUT, -1}, V_CURVE, KE_AEQ, KT_ALL,
+              B_SEQ, COLOURS(240, 90, 130, 255, 165, 195)},
 };
 #define NPAGES ((int)(sizeof PAGES / sizeof PAGES[0]))
 
@@ -72,8 +78,9 @@ static uint8_t has_undo;
 static uint32_t dice_seed, dice_throws;
 static int dice_db;                      /* the last throw's loudness, dBFS (the host's checks) */
 static kick_coefs_t coefs[2];            /* cooked from params: the main loop writes one, then flips */
+static kick_coefs_t src_coefs[2];        /* the punch's source, when it is a preset (its midbody) */
 static volatile uint8_t coefs_cur;
-static kick_engine_t engine;             /* the audio interrupt's */
+static kick_kit_t engine;                /* the audio interrupt's */
 
 static volatile uint8_t playing;         /* PLAY: a kick every beat */
 static volatile uint8_t play_start;      /* PLAY just pressed: the first beat now */
@@ -87,10 +94,18 @@ static volatile int32_t last_semis;
 static volatile int8_t keyq[KEYQ];
 static volatile uint32_t keyq_w, keyq_r;
 
+static int preset_params(int slot, kick_params_t *p);
+
 static void cook(void)
 {
     uint8_t next = (uint8_t)(coefs_cur ^ 1u);
+    kick_params_t sp;
+    int src = params.v[KP_P_SRC];
     kick_cook(&params, &coefs[next]);
+    if (src >= KPS_P1 && preset_params(src - KPS_P1, &sp)) {   /* a preset as the punch: its midbody (an empty */
+        kick_cook(&sp, &src_coefs[next]);                       /* slot: this kick's own) */
+        coefs[next].p_src = &src_coefs[next];
+    }
     coefs_cur = next;                    /* the render reads coefs[coefs_cur] at a block's start: a turn is heard at
                                             once (the main loop never runs inside the render) */
 }
@@ -98,7 +113,7 @@ static void cook(void)
 /* ---------------------------------------------------------------- audio --- */
 static void trigger(int semis)           /* audio interrupt */
 {
-    kick_trigger(&engine, &coefs[coefs_cur], semis);
+    kick_kit_trigger(&engine, &coefs[coefs_cur], semis);
     last_semis = semis;
     kicks++;
 }
@@ -153,7 +168,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
                 m = left;
             beat_acc += bpm * m;
         }
-        kick_render(&engine, &coefs[coefs_cur], mono + done, m);
+        kick_kit_render(&engine, &coefs[coefs_cur], mono + done, m);
         done += m;
     }
     kick_master(&lim_env, mono, n);      /* the master: a limiter at -0.3 dBFS, then MASTER's volume */
@@ -171,7 +186,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 void app_panic(void)
 {
     playing = 0;
-    kick_engine_reset(&engine);
+    kick_kit_reset(&engine);
 }
 
 /* ------------------------------------------------------------------- UI --- */
@@ -185,6 +200,7 @@ static struct {
     uint8_t wave_dirty;                  /* the parameters changed: the picture of the kick again */
     uint32_t wave_at;                    /* not before (a knob turning fast redraws it now and then) */
     uint8_t wave_lo[240], wave_hi[240];  /* the picture: each column's lowest and highest sample, 0..80 */
+    uint8_t pwave_lo[240], pwave_hi[240];   /* PNCH: the punch alone */
     uint32_t wave_ms;                    /* the kick's length; 0: longer than the picture's second */
     float spec[SPEC_BINS];               /* the kick's spectrum, dB under its loudest bin */
     int band[KE_N];                      /* the band K2..K4 turn on each EQ page */
@@ -306,27 +322,37 @@ static void presets_load(void)
     plat_store_load(OBJ_PRESETS, all, sizeof all);
     for (s = 0; s < NPRESETS; s++) {
         kick_params_t d;
-        kick_params_default(&d);
-        for (i = 0; i < KP_COUNT; i++) {
+        for (i = 0; i < KP_COUNT && i < np; i++) {
             int at = 8 + 2 * (s * np + i);
-            presets.v[s * KP_COUNT + i] = i < np ? (int16_t)(all[at] | all[at + 1] << 8) : d.v[i];
+            d.v[i] = (int16_t)(all[at] | all[at + 1] << 8);
         }
+        kick_params_upgrade(&d, np);     /* the parameters it did not have: so it sounds as it did */
+        for (i = 0; i < KP_COUNT; i++)
+            presets.v[s * KP_COUNT + i] = d.v[i];
     }
     presets.nparams = KP_COUNT;
+}
+
+static int preset_params(int slot, kick_params_t *p)   /* a slot's kick, each value in its range; 0: empty */
+{
+    int i;
+    if (slot < 0 || slot >= NPRESETS || !(presets.used >> slot & 1u))
+        return 0;
+    for (i = 0; i < KP_COUNT; i++) {
+        const kick_param_info_t *in = kick_param_info(i);
+        p->v[i] = (int16_t)clamp(presets.v[slot * KP_COUNT + i], in->min, in->max);
+    }
+    return 1;
 }
 
 static void preset_load(int slot)
 {
     char t[4];
-    int i;
     if (!(presets.used >> slot & 1u)) {
         app_say("EMPTY", "");
         return;
     }
-    for (i = 0; i < KP_COUNT; i++) {     /* each value within its range, whatever the flash held */
-        const kick_param_info_t *in = kick_param_info(i);
-        params.v[i] = (int16_t)clamp(presets.v[slot * KP_COUNT + i], in->min, in->max);
-    }
+    preset_params(slot, &params);
     preset_cur = slot;
     preset_edited = 0;
     has_undo = 0;                        /* (SEL + ARP undoes a throw, not a load) */
@@ -351,6 +377,7 @@ static void preset_save(int slot)
     preset_saves++;
     preset_cur = slot;
     preset_edited = 0;
+    cook();                              /* (the punch may play this preset) */
     int_text(slot + 1, t);
     app_say("SAVED", t);
 }
@@ -368,9 +395,10 @@ void app_init(void)
 {
     kick_init();
     kick_params_default(&params);
-    kick_engine_reset(&engine);
+    kick_kit_reset(&engine);
     cook();
     presets_load();
+    cook();                              /* (a preset as the punch's source) */
     preset_cur = -1;                     /* a new kick at power-on; the presets wait on their keys */
     preset_edited = 0;
     has_undo = 0;
@@ -501,10 +529,12 @@ static void input(void)
             int p = -1;
             if (k == B_HOME)
                 p = PG_909;
-            else if (k == B_FX)                  /* DIST1; again: DIST2, and back */
+            else if (k == B_FX)                  /* D1; again: D2, and back */
                 p = ui.page == PG_D1 ? PG_D2 : PG_D1;
-            else if (k == B_EDIT || k == B_LFO || k == B_GLO) {   /* an EQ page; again: its next band */
-                int to = k == B_EDIT ? PG_EQ : k == B_LFO ? PG_EQ2 : PG_POST;
+            else if (k == B_ENV)                 /* PNCH; again: P.EQ, and back */
+                p = ui.page == PG_PUNCH ? PG_PEQ : PG_PUNCH;
+            else if (k == B_EDIT || k == B_LFO || k == B_GLO || k == B_SEQ) {   /* an EQ page; again: its next band */
+                int to = k == B_EDIT ? PG_EQ : k == B_LFO ? PG_EQ2 : k == B_GLO ? PG_POST : PG_A;
                 if (ui.page == to)
                     band_to(*band_of_page() + 1);
                 else
@@ -559,51 +589,61 @@ void app_input_only(void) { input(); }
 #define COL_HZ(x) (20.0f * fm_exp2f((float)(x) * (9.9657843f / 239.0f)))   /* column x: 20 Hz .. 20 kHz */
 static void wave_make(void)
 {
-    static kick_engine_t e;
+    static kick_kit_t e;
     static float buf[256];
     static float gk[SPEC_BINS], g1[SPEC_BINS], g2[SPEC_BINS];
     const kick_coefs_t *c = &coefs[coefs_cur];
-    uint32_t col = 0, at = 0, per = KICK_RATE / 240u, n, b;
-    int spec = PAGES[ui.page].view != V_WAVE;
-    float lo = 0.0f, hi = 0.0f, top = -200.0f;
+    const page_t *pg = &PAGES[ui.page];
+    int pv = pg->view == V_PUNCH, pass;
+    uint32_t n = 0, b;
+    int spec = pg->view != V_WAVE && !pv;
+    float top = -200.0f;
     for (b = 0; b < SPEC_BINS && spec; b++) {
         gk[b] = 2.0f * fm_cosf(FM_TWO_PI * COL_HZ(b * 4u + 2u) / (float)KICK_RATE);
         g1[b] = g2[b] = 0.0f;
     }
-    kick_engine_reset(&e);
-    e.tap = PAGES[ui.page].tap;          /* the spectrum where this page listens: after the next distortion */
-    kick_trigger(&e, c, 0);
     ui.wave_ms = 0;
-    for (n = 0; n < (uint32_t)KICK_RATE && kick_sounding(&e); n += 256u) {
-        uint32_t i;
-        kick_render(&e, c, buf, 256u);
-        for (i = 0; spec && i < 256u && n + i < SPEC_N; i++) {
-            float x = buf[i] * (0.5f - 0.5f * fm_cosf(FM_TWO_PI * (float)(n + i) / (float)SPEC_N));
-            for (b = 0; b < SPEC_BINS; b++) {
-                float s0 = x + gk[b] * g1[b] - g2[b];
-                g2[b] = g1[b];
-                g1[b] = s0;
+    /* the picture: the first second (on PNCH the first 50 ms: the whole kick, then the punch alone over it) */
+    for (pass = 0; pass < 1 + pv; pass++) {
+        uint32_t col = 0, at = 0, per = pv ? KICK_RATE / 4800u : KICK_RATE / 240u, len = pv ? per * 240u : KICK_RATE;
+        uint8_t *wl = pass ? ui.pwave_lo : ui.wave_lo, *wh = pass ? ui.pwave_hi : ui.wave_hi;
+        float lo = 0.0f, hi = 0.0f;
+        kick_kit_reset(&e);
+        e.tap = pv && !pass ? KT_ALL : pg->tap;   /* the spectrum where this page listens */
+        kick_kit_trigger(&e, c, 0);
+        for (n = 0; n < len && kick_kit_sounding(&e); n += 256u) {
+            uint32_t i;
+            kick_kit_render(&e, c, buf, 256u);
+            for (i = 0; spec && i < 256u && n + i < SPEC_N; i++) {   /* a punch's tick is all at the start: */
+                float w = pg->tap == KT_PUNCH ? 1.0f    /* no window to fade it in */
+                          : 0.5f - 0.5f * fm_cosf(FM_TWO_PI * (float)(n + i) / (float)SPEC_N);
+                float x = buf[i] * w;
+                for (b = 0; b < SPEC_BINS; b++) {
+                    float s0 = x + gk[b] * g1[b] - g2[b];
+                    g2[b] = g1[b];
+                    g1[b] = s0;
+                }
+            }
+            for (i = 0; i < 256u && col < 240u; i++) {
+                float s = buf[i] > 1.0f ? 1.0f : buf[i] < -1.0f ? -1.0f : buf[i];
+                if (s < lo)
+                    lo = s;
+                if (s > hi)
+                    hi = s;
+                if (++at == per) {
+                    wl[col] = (uint8_t)((1.0f - lo) * (WAVE_H / 2 - 1) + 0.5f);
+                    wh[col] = (uint8_t)((1.0f - hi) * (WAVE_H / 2 - 1) + 0.5f);
+                    col++;
+                    at = 0;
+                    lo = hi = 0.0f;
+                }
             }
         }
-        for (i = 0; i < 256u && col < 240u; i++) {
-            float s = buf[i] > 1.0f ? 1.0f : buf[i] < -1.0f ? -1.0f : buf[i];
-            if (s < lo)
-                lo = s;
-            if (s > hi)
-                hi = s;
-            if (++at == per) {
-                ui.wave_lo[col] = (uint8_t)((1.0f - lo) * (WAVE_H / 2 - 1) + 0.5f);
-                ui.wave_hi[col] = (uint8_t)((1.0f - hi) * (WAVE_H / 2 - 1) + 0.5f);
-                col++;
-                at = 0;
-                lo = hi = 0.0f;
-            }
-        }
+        for (; col < 240u; col++)
+            wl[col] = wh[col] = WAVE_H / 2 - 1;
+        if (!pv && !kick_kit_sounding(&e))
+            ui.wave_ms = n * 1000u / KICK_RATE;
     }
-    if (!kick_sounding(&e))
-        ui.wave_ms = n * 1000u / KICK_RATE;
-    for (; col < 240u; col++)
-        ui.wave_lo[col] = ui.wave_hi[col] = WAVE_H / 2 - 1;
     for (b = 0; b < SPEC_BINS && spec; b++) {
         float pw = g1[b] * g1[b] + g2[b] * g2[b] - gk[b] * g1[b] * g2[b];
         ui.spec[b] = pw > 1e-12f ? 3.0103f * fm_log2f(pw) : -120.0f;
@@ -732,10 +772,8 @@ static void draw(void)
         for (k = 0; k < NPAGES; k++) {
             int32_t x1 = cv_text(x, 4, &FONT_XS, PAGES[k].name, k == ui.page ? PAGES[k].hi : C_DIM);
             cv_rect(x - 1, 15, x1 - x + 2, k == ui.page ? 2 : 1, k == ui.page ? PAGES[k].hi : PAGES[k].amb);
-            x = x1 + 8;
+            x = x1 + 6;
         }
-        if (pg->p[4] >= 0)               /* a page with a second row: which one the knobs turn */
-            cv_text(232 - text_w(&FONT_XS, row ? "ROW 2" : "ROW 1"), 4, &FONT_XS, row ? "ROW 2" : "ROW 1", C_DIM);
     }
     for (i = 0; i < 8u; i++) {
         int32_t x = 4 + (int32_t)(i % 4u) * 59, y = 20 + (int32_t)(i / 4u) * 34;
@@ -769,6 +807,16 @@ static void draw(void)
         freq_grid();
         spec_draw(C_HI);
         break;
+    case V_PUNCH:                        /* the first 50 ms: the whole kick faint, the punch bright over it */
+        for (i = 1; i < 10u; i++)                /* 5 ms marks */
+            cv_rect((int32_t)i * 24, 12, 1, WAVE_H, C_LINE);
+        cv_rect(0, 12 + WAVE_H / 2 - 1, 240, 1, C_LINE);
+        for (i = 0; i < 240u; i++)
+            cv_rect((int32_t)i, 12 + ui.wave_hi[i], 1, ui.wave_lo[i] - ui.wave_hi[i] + 1, C_DIM);
+        for (i = 0; i < 240u; i++)
+            if (ui.pwave_lo[i] != ui.pwave_hi[i] || ui.pwave_hi[i] != WAVE_H / 2 - 1)
+                cv_rect((int32_t)i, 12 + ui.pwave_hi[i], 1, ui.pwave_lo[i] - ui.pwave_hi[i] + 1, C_HI);
+        break;
     default:
         for (i = 1; i < 4u; i++)                 /* 250 ms marks */
             cv_rect((int32_t)i * 60, 12, 1, WAVE_H, C_LINE);
@@ -780,7 +828,10 @@ static void draw(void)
     note_text(0, t);
     cv_text(8, WAVE_H + 18, &FONT_XS, "ROOT", C_GRAY);
     cv_text(44, WAVE_H + 18, &FONT_XS, t, C_HI);
-    if (ui.wave_ms) {
+    if (pg->view == V_PUNCH) {           /* the picture's span, not the kick's length */
+        t[0] = 0;
+        text_cat(t, "0-50 MS");
+    } else if (ui.wave_ms) {
         int_text((int32_t)ui.wave_ms, t);
         text_cat(t, " MS");
     } else {

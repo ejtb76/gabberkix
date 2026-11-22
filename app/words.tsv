@@ -7,3 +7,15 @@ GABBER	gabber
 DIST1	distortion 1
 DIST2	distortion 2
 EQ2	E Q 2
+D1	distortion 1
+D2	distortion 2
+PNCH	punch
+P.EQ	punch E Q
+GRP.A	group A
+P.TUNE	punch tune
+P.HOLD	punch hold
+P.DECAY	punch decay
+P.DRV	punch drive
+P.LEVEL	punch level
+A.OUT	group A out
+SRC	source

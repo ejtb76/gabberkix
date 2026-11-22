@@ -15,10 +15,14 @@
 #define RND_LOUD -11.0f                  /* kick_randomize: a new kick's loudness, dBFS, */
 #define RND_SPREAD 1.5f                  /* this close, */
 #define RND_TRIES 8                      /* in at most so many throws */
+#define A_OUT -6                         /* group A's OUT on a new kick: as loud as before the punch (chain_test) */
 #define D2_OUT -9                        /* DIST 2's OUT on a new kick: as loud as the clean 909 (chain_test) */
 
 /* ------------------------------------------------------------ parameters --- */
 static const char *const DIST_T[KDT_N] = {"OFF", "TANH", "HARD", "GABBER"};
+static const char *const SRC_T[KPS_N] = {"OFF", "SELF", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8",
+                                         "P9", "P10", "P11", "P12", "P13", "P14", "P15", "P16"};
+static const char *const CLIP_T[KCL_N] = {"OFF", "HARD", "SOFT"};
 
 /* an EQ band, at its first parameter: a gain-0 peak at f (so it does nothing until its GAIN moves), Q 1 */
 #define BAND(at, n, f)                                                                                               \
@@ -54,10 +58,37 @@ static const kick_param_info_t INFO[KP_COUNT] = {
     DIST(KP_D2, "2", KDT_GABBER, 6, D2_OUT),
     BAND(KP_POST + 0 * KB_N, "A", 60),
     BAND(KP_POST + 1 * KB_N, "B", 3000),
+    /* the punch: on a new kick this kick's own attack, the first 8 ms, 6 dB up */
+    [KP_P_SRC] = {"SRC", 0, KPS_N - 1, KPS_SELF, KU_LIST, 1, SRC_T},
+    [KP_P_TUNE] = {"P.TUNE", -24, 24, 0, KU_ST, 1, 0},
+    [KP_P_HOLD] = {"P.HOLD", 0, 20, 0, KU_MS, 1, 0},
+    [KP_P_DECAY] = {"P.DECAY", 1, 50, 8, KU_MS, 1, 0},
+    [KP_P_DRIVE] = {"P.DRV", 0, 36, 0, KU_DB, 1, 0},
+    [KP_P_LEVEL] = {"P.LEVEL", -36, 24, 6, KU_DB, 1, 0},
+    BAND(KP_PEQ + 0 * KB_N, "P.1", 200),
+    BAND(KP_PEQ + 1 * KB_N, "P.2", 800),
+    BAND(KP_PEQ + 2 * KB_N, "P.3", 2500),
+    BAND(KP_PEQ + 3 * KB_N, "P.4", 6000),
+    /* group A: a light push into a hard clip */
+    BAND(KP_AEQ + 0 * KB_N, "A.1", 60),
+    BAND(KP_AEQ + 1 * KB_N, "A.2", 250),
+    BAND(KP_AEQ + 2 * KB_N, "A.3", 1000),
+    BAND(KP_AEQ + 3 * KB_N, "A.4", 4000),
+    [KP_A_PUSH] = {"PUSH", 0, 36, 6, KU_DB, 1, 0},
+    [KP_A_CLIP] = {"CLIP", 0, KCL_N - 1, KCL_HARD, KU_LIST, 1, CLIP_T},
+    [KP_A_OUT] = {"A.OUT", -36, 12, A_OUT, KU_DB, 1, 0},
 };
 
-int kick_eq_bands(int eq) { return eq == KE_EQ1 ? KICK_EQ1_BANDS : eq == KE_EQ2 ? KICK_EQ2_BANDS : KICK_POST_BANDS; }
-int kick_eq_param(int eq) { return eq == KE_EQ1 ? KP_EQ1 : eq == KE_EQ2 ? KP_EQ2 : KP_POST; }
+int kick_eq_bands(int eq)
+{
+    static const uint8_t N[KE_N] = {KICK_EQ1_BANDS, KICK_EQ2_BANDS, KICK_POST_BANDS, KICK_PEQ_BANDS, KICK_AEQ_BANDS};
+    return N[eq];
+}
+int kick_eq_param(int eq)
+{
+    static const uint8_t P[KE_N] = {KP_EQ1, KP_EQ2, KP_POST, KP_PEQ, KP_AEQ};
+    return P[eq];
+}
 
 
 const kick_param_info_t *kick_param_info(int i) { return i >= 0 && i < KP_COUNT ? &INFO[i] : 0; }
@@ -262,6 +293,36 @@ void kick_cook(const kick_params_t *p, kick_coefs_t *c)
     cook_dist(&c->d2, &v[KP_D2]);
     for (b = 0; b < KICK_POST_BANDS; b++)
         cook_band(&c->post[b], &v[KP_POST + KB_N * b]);
+    c->p_src = 0;                        /* this kick (the app points it at a preset's) */
+    c->p_on = v[KP_P_SRC] != KPS_OFF;
+    c->p_tune = v[KP_P_TUNE];
+    c->p_hold = (uint32_t)((float)v[KP_P_HOLD] * MS);
+    c->p_decay_k = decay_per_sample((float)v[KP_P_DECAY], 60.0f);
+    c->p_drive = v[KP_P_DRIVE] ? fm_db2lin((float)v[KP_P_DRIVE]) : 0.0f;
+    c->p_level = fm_db2lin((float)v[KP_P_LEVEL]);
+    for (b = 0; b < KICK_PEQ_BANDS; b++)
+        cook_band(&c->peq[b], &v[KP_PEQ + KB_N * b]);
+    for (b = 0; b < KICK_AEQ_BANDS; b++)
+        cook_band(&c->aeq[b], &v[KP_AEQ + KB_N * b]);
+    c->a_clip = (uint8_t)v[KP_A_CLIP];
+    c->a_push = fm_db2lin((float)v[KP_A_PUSH]);
+    c->a_out = fm_db2lin((float)v[KP_A_OUT]);
+}
+
+void kick_params_upgrade(kick_params_t *p, int from)
+{
+    kick_params_t d;
+    int i;
+    kick_params_default(&d);
+    for (i = from < 0 ? 0 : from; i < KP_COUNT; i++)
+        p->v[i] = d.v[i];
+    if (from <= KP_P_SRC)                /* a preset from before the punch: none, and no clipper */
+        p->v[KP_P_SRC] = KPS_OFF;
+    if (from <= KP_A_CLIP) {
+        p->v[KP_A_CLIP] = KCL_OFF;
+        p->v[KP_A_PUSH] = 0;
+        p->v[KP_A_OUT] = 0;
+    }
 }
 
 /* the gain of one filter at hz: its digital response, exactly (the bilinear map: s = j tan(pi f / rate) / g) */
@@ -278,7 +339,7 @@ static float svf_db(const kick_svf_t *s, float t)   /* t = tan(pi hz / rate) */
 
 static const kick_svf_t *eq_bands(const kick_coefs_t *c, int eq)
 {
-    return eq == KE_EQ1 ? c->eq1 : eq == KE_EQ2 ? c->eq2 : c->post;
+    return eq == KE_EQ1 ? c->eq1 : eq == KE_EQ2 ? c->eq2 : eq == KE_POST ? c->post : eq == KE_PEQ ? c->peq : c->aeq;
 }
 
 float kick_band_db(const kick_coefs_t *c, int eq, int band, float hz)
@@ -500,15 +561,167 @@ void kick_master(float *env, float *buf, uint32_t n)
 
 int kick_sounding(const kick_engine_t *e) { return e->v[0].on || e->v[1].on || e->ch.quiet < QUIET_SAMPLES; }
 
+/* ------------------------------------------------------- the whole kick --- */
+void kick_kit_reset(kick_kit_t *k)
+{
+    uint32_t i;
+    kick_engine_reset(&k->mid);
+    kick_engine_reset(&k->punch);
+    k->gate = 0.0f;
+    k->gate_hold = 0;
+    for (i = 0; i < KICK_PEQ_BANDS; i++)
+        k->peq[i][0] = k->peq[i][1] = 0.0f;
+    for (i = 0; i < KICK_AEQ_BANDS; i++)
+        k->aeq[i][0] = k->aeq[i][1] = 0.0f;
+    k->p_quiet = k->quiet = QUIET_SAMPLES;
+    k->tap = KT_ALL;
+}
+
+void kick_kit_trigger(kick_kit_t *k, const kick_coefs_t *c, int semis)
+{
+    kick_trigger(&k->mid, c, semis);
+    if (c->p_on) {                       /* the punch: its source from the start, the gate open */
+        const kick_coefs_t *src = c->p_src ? (const kick_coefs_t *)c->p_src : c;
+        kick_engine_reset(&k->punch);
+        kick_trigger(&k->punch, src, semis + c->p_tune);
+        k->gate = 1.0f;
+        k->gate_hold = c->p_hold;
+        k->p_quiet = 0;
+    }
+    k->quiet = 0;
+}
+
+int kick_kit_sounding(const kick_kit_t *k)
+{
+    return kick_sounding(&k->mid) || k->gate > 0.0f || k->p_quiet < QUIET_SAMPLES || k->quiet < QUIET_SAMPLES;
+}
+
+static float peak_of(const float *b, uint32_t n)
+{
+    float pk = 0.0f;
+    uint32_t i;
+    for (i = 0; i < n; i++)
+        if (fm_fabsf(b[i]) > pk)
+            pk = fm_fabsf(b[i]);
+    return pk;
+}
+
+/* the punch's block into k->pbuf: its source through the gate, P.EQ, the drive and its level; 0: silent */
+static int punch_run(kick_kit_t *k, const kick_coefs_t *c, uint32_t n)
+{
+    float *pb = k->pbuf;
+    uint32_t i;
+    if (k->gate <= 0.0f && k->p_quiet >= QUIET_SAMPLES)
+        return 0;
+    if (k->gate > 0.0f) {
+        const kick_coefs_t *src = c->p_src ? (const kick_coefs_t *)c->p_src : c;
+        float g = k->gate;
+        uint32_t hold = k->gate_hold;
+        kick_render(&k->punch, src, pb, n);
+        for (i = 0; i < n; i++) {
+            pb[i] *= g;
+            if (hold)
+                hold--;
+            else
+                g *= c->p_decay_k;
+        }
+        k->gate_hold = hold;
+        k->gate = g;
+        if (g < SILENT) {                /* shut: the source stops, P.EQ rings out */
+            k->gate = 0.0f;
+            kick_engine_reset(&k->punch);
+        }
+    } else
+        for (i = 0; i < n; i++)
+            pb[i] = 0.0f;
+    eq_run(c->peq, k->peq, KICK_PEQ_BANDS, pb, n);
+    for (i = 0; i < n; i++) {
+        float x = pb[i];
+        if (c->p_drive > 0.0f) {         /* clipping the punch is allowed, and meant */
+            x *= c->p_drive;
+            x = x > 1.0f ? 1.0f : x < -1.0f ? -1.0f : x;
+        }
+        pb[i] = x * c->p_level;
+    }
+    if (k->gate > 0.0f || peak_of(pb, n) >= SILENT)
+        k->p_quiet = 0;
+    else if ((k->p_quiet += n) >= QUIET_SAMPLES) {
+        for (i = 0; i < KICK_PEQ_BANDS; i++)
+            k->peq[i][0] = k->peq[i][1] = 0.0f;
+    }
+    return 1;
+}
+
+static float soft_clip(float x)          /* linear to 0.5, then bent smoothly towards 1 */
+{
+    float a = fm_fabsf(x), y;
+    if (a <= 0.5f)
+        return x;
+    y = 0.5f + 0.5f * fm_tanhf((a - 0.5f) * 2.0f);
+    return x < 0.0f ? -y : y;
+}
+
+static void kit_block(kick_kit_t *k, const kick_coefs_t *c, float *out, uint32_t n)
+{
+    uint32_t i;
+    int awake = kick_kit_sounding(k);
+    k->mid.tap = k->tap == KT_D1 || k->tap == KT_D2 ? k->tap : KT_ALL;
+    kick_render(&k->mid, c, out, n);
+    if (k->tap != KT_ALL && !kick_sounding(&k->mid) && k->gate <= 0.0f && k->p_quiet >= QUIET_SAMPLES)
+        k->quiet = QUIET_SAMPLES;        /* a tap: done when its layers are (group A is not heard) */
+    if (k->tap == KT_D1 || k->tap == KT_D2 || k->tap == KT_MID)
+        return;
+    if (punch_run(k, c, n)) {
+        if (k->tap == KT_PUNCH) {
+            for (i = 0; i < n; i++)
+                out[i] = k->pbuf[i];
+            return;
+        }
+        for (i = 0; i < n; i++)
+            out[i] += k->pbuf[i];
+    } else if (k->tap == KT_PUNCH) {
+        for (i = 0; i < n; i++)
+            out[i] = 0.0f;
+        return;
+    }
+    if (!awake)
+        return;
+    /* group A: its EQ, the clipper, out */
+    eq_run(c->aeq, k->aeq, KICK_AEQ_BANDS, out, n);
+    for (i = 0; i < n; i++) {
+        float x = out[i] * c->a_push;
+        if (c->a_clip == KCL_HARD)
+            x = x > 1.0f ? 1.0f : x < -1.0f ? -1.0f : x;
+        else if (c->a_clip == KCL_SOFT)
+            x = soft_clip(x);
+        out[i] = x * c->a_out;
+    }
+    if (kick_sounding(&k->mid) || k->gate > 0.0f || k->p_quiet < QUIET_SAMPLES || peak_of(out, n) >= SILENT)
+        k->quiet = 0;
+    else if ((k->quiet += n) >= QUIET_SAMPLES)
+        for (i = 0; i < KICK_AEQ_BANDS; i++)
+            k->aeq[i][0] = k->aeq[i][1] = 0.0f;
+}
+
+void kick_kit_render(kick_kit_t *k, const kick_coefs_t *c, float *out, uint32_t n)
+{
+    while (n) {                          /* in blocks of the punch's buffer */
+        uint32_t m = n < 256u ? n : 256u;
+        kit_block(k, c, out, m);
+        out += m;
+        n -= m;
+    }
+}
+
 uint32_t kick_render_one(const kick_coefs_t *c, int semis, float *out, uint32_t max)
 {
-    kick_engine_t e;
+    static kick_kit_t k;
     uint32_t done = 0;
-    kick_engine_reset(&e);
-    kick_trigger(&e, c, semis);
-    while (done < max && kick_sounding(&e)) {
+    kick_kit_reset(&k);
+    kick_kit_trigger(&k, c, semis);
+    while (done < max && kick_kit_sounding(&k)) {
         uint32_t n = max - done < 256u ? max - done : 256u;
-        kick_render(&e, c, out + done, n);
+        kick_kit_render(&k, c, out + done, n);
         done += n;
     }
     return done;
@@ -518,15 +731,15 @@ uint32_t kick_render_one(const kick_coefs_t *c, int semis, float *out, uint32_t 
 /* how loud a kick is: one beat at 160 BPM through the master's limiter, its mean square, dBFS */
 float kick_loudness(const kick_coefs_t *c)
 {
-    static kick_engine_t e;
+    static kick_kit_t k;
     static float blk[256];
     float env = 0.0f, sum = 0.0f;
     uint32_t n = 0, beat = KICK_RATE * 60u / 160u, i;
-    kick_engine_reset(&e);
-    kick_trigger(&e, c, 0);
+    kick_kit_reset(&k);
+    kick_kit_trigger(&k, c, 0);
     while (n < beat) {
         uint32_t m = beat - n < 256u ? beat - n : 256u;
-        kick_render(&e, c, blk, m);
+        kick_kit_render(&k, c, blk, m);
         kick_master(&env, blk, m);
         for (i = 0; i < m; i++)
             sum += blk[i] * blk[i];
@@ -587,6 +800,14 @@ int kick_randomize(kick_params_t *p, uint32_t *seed)
         dice_dist(&q, KP_D1, 6, 30, seed);
         dice_eq(&q, KE_EQ2, 100, 8000, seed);  /* the overtones it made */
         dice_dist(&q, KP_D2, 0, 15, seed);     /* milder: a heavy last clip would flatten what the EQs did */
+        if (dice_in(seed, 0, 3) == 0)          /* the punch: none, one time in four; else another tick (from */
+            q.v[KP_P_SRC] = KPS_OFF;           /* the preset it was from, or this kick; group A stays) */
+        else if (q.v[KP_P_SRC] == KPS_OFF)
+            q.v[KP_P_SRC] = KPS_SELF;
+        q.v[KP_P_TUNE] = (int16_t)dice_in(seed, -12, 12);
+        q.v[KP_P_HOLD] = (int16_t)dice_in(seed, 0, 10);
+        q.v[KP_P_DECAY] = (int16_t)dice_in(seed, 3, 30);
+        dice_eq(&q, KE_PEQ, 300, 10000, seed);
         for (k = 0; k < 3; k++) {              /* DIST2's OUT to a new kick's loudness */
             int out = q.v[KP_D2 + KD_OUT], to;
             kick_cook(&q, &c);

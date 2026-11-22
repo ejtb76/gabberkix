@@ -15,15 +15,38 @@
 #include <string.h>
 #include "kick.h"
 
+static float peak_of(const float *b, uint32_t n);
+
 #define N 262144u                       /* 6 s: the longest kick rings out in it */
 static float buf[N], ref[N];
 static int fails;
 
-static void neutral(kick_params_t *p)    /* every EQ flat (a new kick's) and both distortions off */
+static void mid_only(kick_params_t *p)   /* the midbody alone: no punch, group A a straight wire */
+{
+    p->v[KP_P_SRC] = KPS_OFF;
+    p->v[KP_A_CLIP] = KCL_OFF;
+    p->v[KP_A_PUSH] = 0;
+    p->v[KP_A_OUT] = 0;
+}
+
+static void neutral(kick_params_t *p)    /* every EQ flat (a new kick's), both distortions off, the midbody alone */
 {
     kick_params_default(p);
     p->v[KP_D1 + KD_TYPE] = KDT_OFF;
     p->v[KP_D2 + KD_TYPE] = KDT_OFF;
+    mid_only(p);
+}
+
+/* the kit's output at a tap, n samples from a kick */
+static void kit_tap(const kick_coefs_t *c, int tap, float *out, uint32_t n)
+{
+    static kick_kit_t k;
+    uint32_t i;
+    kick_kit_reset(&k);
+    k.tap = (uint8_t)tap;
+    kick_kit_trigger(&k, c, 0);
+    for (i = 0; i < n; i += 256u)
+        kick_kit_render(&k, c, out + i, n - i < 256u ? n - i : 256u);
 }
 
 static double sine_gain_db(const kick_coefs_t *c, double hz)   /* the chain's gain for a steady sine, measured */
@@ -82,7 +105,7 @@ static void band_check(int eq, int f, int gain, int q)
  * Q 45 behind a 60 dB clipper stays loud for seconds; it must still stop) */
 static void finite_and_done(const kick_params_t *p, const char *what)
 {
-    static kick_engine_t e;
+    static kick_kit_t e;
     static float blk[256];
     kick_coefs_t c;
     uint32_t n = 0, i, max = 30u * KICK_RATE;
@@ -90,10 +113,10 @@ static void finite_and_done(const kick_params_t *p, const char *what)
     int ok = 1;
     char t[160];
     kick_cook(p, &c);
-    kick_engine_reset(&e);
-    kick_trigger(&e, &c, 0);
-    while (n < max && kick_sounding(&e)) {
-        kick_render(&e, &c, blk, 256u);
+    kick_kit_reset(&e);
+    kick_kit_trigger(&e, &c, 0);
+    while (n < max && kick_kit_sounding(&e)) {
+        kick_kit_render(&e, &c, blk, 256u);
         for (i = 0; i < 256u; i++) {
             if (!isfinite(blk[i]))
                 ok = 0;
@@ -295,6 +318,7 @@ int main(void)
         }
         p.v[KP_EQ2 + KB_GAIN] = 0;
         p.v[KP_D2 + KD_TYPE] = KDT_OFF;
+        mid_only(&p);
         kick_cook(&p, &c);
         kick_render_one(&c, 0, ref, 16384u);
         for (i = 0; i < 16384u; i++)
@@ -302,10 +326,77 @@ int main(void)
                 d = fabs(buf[i] - ref[i]);
         check(d == 0.0, "the tap after DIST1 is the chain up to DIST1 (EQ2 and DIST2 left out)");
     }
+    /* the punch and group A */
+    {
+        static float mid[16384], all[16384], pun[16384];
+        kick_coefs_t src;
+        double d = 0.0, late = 0.0, early = 0.0, cr0, cr1;
+        char t[160];
+        /* a preset from before the punch, upgraded, is the midbody alone: exactly as it sounded */
+        kick_params_default(&p);
+        p.v[KP_EQ1 + KB_GAIN] = 18;
+        kick_params_upgrade(&p, KICK_PARAMS_V1);
+        kick_cook(&p, &c);
+        kit_tap(&c, KT_MID, mid, 16384u);
+        kit_tap(&c, KT_ALL, all, 16384u);
+        for (i = 0; i < 16384u; i++)
+            if (fabs(all[i] - mid[i]) > d)
+                d = fabs(all[i] - mid[i]);
+        check(d == 0.0, "a preset from before the punch sounds exactly as it did (no punch, no clipper)");
+        /* group A at no push: a straight wire for a kick under full scale; pushed: squashed */
+        neutral(&p);                     /* the clean 909, 6 dB down: under full scale */
+        p.v[KP_LEVEL] = -6;
+        p.v[KP_A_CLIP] = KCL_HARD;
+        kick_cook(&p, &c);
+        kit_tap(&c, KT_MID, mid, 16384u);
+        kit_tap(&c, KT_ALL, all, 16384u);
+        d = 0.0;
+        for (i = 0; i < 16384u; i++)
+            if (fabs(all[i] - mid[i]) > d)
+                d = fabs(all[i] - mid[i]);
+        snprintf(t, sizeof t, "group A, HARD at PUSH 0: the midbody (peak %.2f) passes untouched", peak_of(mid, 16384u));
+        check(d == 0.0 && peak_of(mid, 16384u) < 1.0, t);
+        cr0 = crest(all, 8192u);
+        p.v[KP_A_PUSH] = 24;
+        kick_cook(&p, &c);
+        kit_tap(&c, KT_ALL, all, 16384u);
+        cr1 = crest(all, 8192u);
+        snprintf(t, sizeof t, "group A at PUSH 24: squashed (crest %.2f, at PUSH 0 %.2f)", cr1, cr0);
+        check(cr1 < 0.8 * cr0, t);
+        /* the punch: the tick alone (8 ms to -60 dB: silent after 20), loud at the start */
+        kick_params_default(&p);
+        kick_cook(&p, &c);
+        kit_tap(&c, KT_PUNCH, pun, 16384u);
+        for (i = 0; i < 16384u; i++) {
+            if (i < 441u && fabs(pun[i]) > early)
+                early = fabs(pun[i]);
+            if (i > 882u && fabs(pun[i]) > late)
+                late = fabs(pun[i]);
+        }
+        snprintf(t, sizeof t, "a new kick's punch: %.2f in its first 10 ms, %.1f dB under that after 20 ms", early,
+                 20.0 * log10(late / early + 1e-30));
+        check(early > 0.3 && late < early * 0.001, t);
+        /* from a preset: another kick's tick (here one a fifth up, with no distortion) */
+        neutral(&p);
+        p.v[KP_TUNE] = 7;
+        kick_cook(&p, &src);
+        kick_params_default(&p);
+        p.v[KP_P_SRC] = KPS_P1;
+        kick_cook(&p, &c);
+        c.p_src = &src;
+        kit_tap(&c, KT_PUNCH, all, 16384u);
+        d = 0.0;
+        for (i = 0; i < 882u; i++)
+            d += (all[i] - pun[i]) * (all[i] - pun[i]);
+        snprintf(t, sizeof t, "a preset as the punch's source: another tick (%.1f dB from this kick's own)",
+                 10.0 * log10(d / 882.0 + 1e-30));
+        check(d / 882.0 > 1e-4, t);
+    }
+
     /* the dice: 300 throws; every kick as loud as a new one (never soft, never silent), its EQs extreme */
     {
         uint32_t seed = 12345u;
-        int k, soft = 0, loud = 0, tame = 0, throws = 0, most = 0, shorter = 0;
+        int k, soft = 0, loud = 0, tame = 0, throws = 0, most = 0, shorter = 0, unpunched = 0;
         long decay = 0;
         float lo = 0.0f, hi = -120.0f;
         char t[256];
@@ -324,6 +415,7 @@ int main(void)
             if (db > hi)
                 hi = db;
             decay += p.v[KP_DECAY];
+            unpunched += p.v[KP_P_SRC] == KPS_OFF;
             shorter += p.v[KP_DECAY] < 550;
             if (db < -14.0f)
                 soft++;
@@ -343,8 +435,20 @@ int main(void)
         snprintf(t, sizeof t, "the dice's DECAY, 200..900 ms evenly: %ld ms on average (550), %d of 300 under 550 ms",
                  decay / 300, shorter);
         check(decay / 300 > 520 && decay / 300 < 580 && shorter > 125 && shorter < 175, t);
+        snprintf(t, sizeof t, "the dice: no punch one time in four (%d of 300)", unpunched);
+        check(unpunched > 50 && unpunched < 100, t);
     }
     if (fails)
         printf("%d failed\n", fails);
     return fails ? 1 : 0;
+}
+
+static float peak_of(const float *b, uint32_t n)
+{
+    float pk = 0.0f;
+    uint32_t i;
+    for (i = 0; i < n; i++)
+        if (fabsf(b[i]) > pk)
+            pk = fabsf(b[i]);
+    return pk;
 }
