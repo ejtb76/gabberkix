@@ -26,7 +26,8 @@
  *   kick_master(env, buf, n)             the master: a peak limiter at -0.3 dBFS (env: its state, 0 at the start)
  *   kick_curve(c, eq, hz)                an EQ's gain at hz, dB (KE_*: the screen)
  *   kick_band_db(c, eq, b, hz)           one of its bands'
- *   kick_randomize(p, seed)              throw the dice: extreme curves on both EQs, new distortions, and DIST2's OUT
+ *   kick_randomize(p, seed)              throw the dice: the 909's sweep, click and decay, extreme curves on both
+ *                                        EQs, new distortions, and DIST2's OUT
  *                                        set so the kick is as loud as a new one (never soft or silent; main loop)
  *   kick_loudness(c)                     a kick's loudness: one beat at 160 BPM after the limiter, dBFS */
 #ifndef KICK_H

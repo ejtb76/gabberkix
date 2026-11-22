@@ -307,7 +307,7 @@ int main(void)
         uint32_t seed = 12345u;
         int k, soft = 0, loud = 0, tame = 0, throws = 0, most = 0;
         float lo = 0.0f, hi = -120.0f;
-        char t[200];
+        char t[256];
         for (k = 0; k < 300; k++) {
             int j, tries;
             float db;
@@ -326,12 +326,15 @@ int main(void)
                 soft++;
             if (db > -8.0f)
                 loud++;
+            if (p.v[KP_SWEEP] < 100 || p.v[KP_SWEEP] > 500 || p.v[KP_CLICK] > 80 || p.v[KP_DECAY] < 200 ||
+                p.v[KP_DECAY] > 900 || p.v[KP_TUNE] != 0 || p.v[KP_HOLD] != 20 || p.v[KP_LEVEL] != 0)
+                tame++;                  /* (the 909's out of its ranges, or what stays moved) */
             for (j = 0; j < KICK_EQ1_BANDS; j++)
                 if (abs(p.v[KP_EQ1 + KB_N * j + KB_GAIN]) < 9 || abs(p.v[KP_EQ2 + KB_N * j + KB_GAIN]) < 9)
                     tame++;
         }
         snprintf(t, sizeof t, "300 throws of the dice: %.1f .. %.1f dBFS a beat (a new kick: -11), none under -14 or "
-                 "over -8 (%d, %d), every band 9 dB or more (%d not); %.2f throws a kick, %d at most",
+                 "over -8 (%d, %d), every band 9 dB or more and the 909 in its ranges (%d not); %.2f throws a kick, %d at most",
                  lo, hi, soft, loud, tame, throws / 300.0, most);
         check(!soft && !loud && !tame, t);
     }

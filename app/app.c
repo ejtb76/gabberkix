@@ -338,7 +338,8 @@ static void page_to(int p)
     app_say("PAGE", PAGES[p].name);
 }
 
-/* ARP: throw the dice (the EQs and distortions; the 909 and POST stay); SEL + ARP: back to before it */
+/* ARP: throw the dice (the 909's sweep, click and decay, the EQs, the distortions; the rest stays); SEL + ARP: back
+ * to before it */
 static void dice_throw(int undo)
 {
     char t[12];

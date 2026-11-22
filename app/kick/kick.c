@@ -580,6 +580,9 @@ int kick_randomize(kick_params_t *p, uint32_t *seed)
         float db = -120.0f;
         int k;
         q = *p;
+        q.v[KP_SWEEP] = (int16_t)(dice_in(seed, 20, 100) * 5);   /* the 909's attack: a sweep of 1..5 octaves, */
+        q.v[KP_CLICK] = (int16_t)(dice_in(seed, 0, 40) * 2);     /* a click of 0..80 %, */
+        q.v[KP_DECAY] = (int16_t)dice_log(seed, 200, 900);       /* a kick's length (tune, hold, level stay) */
         dice_eq(&q, KE_EQ1, 30, 1000, seed);   /* before the first distortion the lows matter most */
         dice_dist(&q, KP_D1, 6, 30, seed);
         dice_eq(&q, KE_EQ2, 100, 8000, seed);  /* the overtones it made */
