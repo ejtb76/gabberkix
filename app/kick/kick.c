@@ -11,7 +11,8 @@
 #define QUIET_SAMPLES 2048u              /* the chain is done when its output was silent this long (46 ms) */
 #define F_MIN 20.0f
 #define F_MAX (0.45f * KICK_RATE)        /* 19.8 kHz: the SVF's tan stays far from its pole */
-#define DC_R 0.99929f                    /* the DC blocker after the distortion: 5 Hz */
+#define DC_R 0.99929f                    /* the DC blockers after the distortions: 5 Hz */
+#define D2_OUT -9                        /* DIST 2's OUT on a new kick: as loud as the clean 909 (chain_test) */
 
 /* ------------------------------------------------------------ parameters --- */
 static const char *const DIST_T[KDT_N] = {"OFF", "TANH", "HARD", "GABBER"};
@@ -22,6 +23,14 @@ static const char *const DIST_T[KDT_N] = {"OFF", "TANH", "HARD", "GABBER"};
     [(at) + KB_GAIN] = {"GAIN" n, -30, 30, 0, KU_DB, 1, 0},                                                          \
     [(at) + KB_Q] = {"Q" n, 10, 3000, 100, KU_Q, 0, 0}
 
+/* a distortion, at its first parameter */
+#define DIST(at, n, type, drive, out)                                                                                \
+    [(at) + KD_TYPE] = {"TYPE" n, 0, KDT_N - 1, type, KU_LIST, 1, DIST_T},                                           \
+    [(at) + KD_DRIVE] = {"DRIVE" n, 0, 60, drive, KU_DB, 1, 0},                                                      \
+    [(at) + KD_BIAS] = {"BIAS" n, -100, 100, 0, KU_PCT, 5, 0},                                                       \
+    [(at) + KD_OUT] = {"OUT" n, -36, 12, out, KU_DB, 1, 0},                                                          \
+    [(at) + KD_MIX] = {"MIX" n, 0, 100, 100, KU_PCT, 5, 0}
+
 static const kick_param_info_t INFO[KP_COUNT] = {
     [KP_TUNE] = {"TUNE", -12, 12, 0, KU_ST, 1, 0},
     [KP_SWEEP] = {"SWEEP", 0, 600, 200, KU_OCT, 5, 0},
@@ -30,25 +39,27 @@ static const kick_param_info_t INFO[KP_COUNT] = {
     [KP_DECAY] = {"DECAY", 10, 4000, 450, KU_MS, 0, 0},
     [KP_CLICK] = {"CLICK", 0, 100, 25, KU_PCT, 2, 0},
     [KP_LEVEL] = {"LEVEL", -36, 12, 0, KU_DB, 1, 0},
-    [KP_DRIVE] = {"DRIVE", 0, 48, 0, KU_DB, 1, 0},
-    BAND(KP_EQ + 0 * KB_N, "1", 40),
-    BAND(KP_EQ + 1 * KB_N, "2", 80),
-    BAND(KP_EQ + 2 * KB_N, "3", 160),
-    BAND(KP_EQ + 3 * KB_N, "4", 320),
-    BAND(KP_EQ + 4 * KB_N, "5", 640),
-    BAND(KP_EQ + 5 * KB_N, "6", 1250),
-    BAND(KP_EQ + 6 * KB_N, "7", 2500),
-    BAND(KP_EQ + 7 * KB_N, "8", 5000),
-    [KP_LPF_FREQ] = {"CUTOFF", 20, 19800, 19800, KU_HZ, 0, 0},
-    [KP_LPF_RESO] = {"RESO", 0, 100, 0, KU_PCT, 2, 0},
-    [KP_DIST_TYPE] = {"D.TYPE", 0, KDT_N - 1, KDT_GABBER, KU_LIST, 1, DIST_T},   /* a new kick: a classic gabber */
-    [KP_DIST_DRIVE] = {"D.DRV", 0, 60, 18, KU_DB, 1, 0},
-    [KP_DIST_BIAS] = {"BIAS", -100, 100, 0, KU_PCT, 5, 0},
-    [KP_DIST_OUT] = {"OUT", -36, 12, -9, KU_DB, 1, 0},   /* GABBER at 18 dB is 9 dB louder than the clean kick */
-    [KP_DIST_MIX] = {"MIX", 0, 100, 100, KU_PCT, 5, 0},
+    BAND(KP_EQ1 + 0 * KB_N, "1", 40),
+    BAND(KP_EQ1 + 1 * KB_N, "2", 80),
+    BAND(KP_EQ1 + 2 * KB_N, "3", 160),
+    BAND(KP_EQ1 + 3 * KB_N, "4", 320),
+    BAND(KP_EQ1 + 4 * KB_N, "5", 640),
+    BAND(KP_EQ1 + 5 * KB_N, "6", 1250),
+    BAND(KP_EQ1 + 6 * KB_N, "7", 2500),
+    BAND(KP_EQ1 + 7 * KB_N, "8", 5000),
+    DIST(KP_D1, "1", KDT_TANH, 12, 0),       /* a new kick: a soft drive, then a gabber clip */
+    BAND(KP_EQ2 + 0 * KB_N, "2.1", 100),
+    BAND(KP_EQ2 + 1 * KB_N, "2.2", 300),
+    BAND(KP_EQ2 + 2 * KB_N, "2.3", 1000),
+    BAND(KP_EQ2 + 3 * KB_N, "2.4", 3000),
+    DIST(KP_D2, "2", KDT_GABBER, 6, D2_OUT),
     BAND(KP_POST + 0 * KB_N, "A", 60),
     BAND(KP_POST + 1 * KB_N, "B", 3000),
 };
+
+int kick_eq_bands(int eq) { return eq == KE_EQ1 ? KICK_EQ1_BANDS : eq == KE_EQ2 ? KICK_EQ2_BANDS : KICK_POST_BANDS; }
+int kick_eq_param(int eq) { return eq == KE_EQ1 ? KP_EQ1 : eq == KE_EQ2 ? KP_EQ2 : KP_POST; }
+
 
 const kick_param_info_t *kick_param_info(int i) { return i >= 0 && i < KP_COUNT ? &INFO[i] : 0; }
 
@@ -189,20 +200,6 @@ static void svf_update(kick_svf_t *s)    /* a1..a3 from g and k */
     s->a3 = s->g * s->a2;
 }
 
-static float reso_k(int pct)             /* 0 %: Q 0.71 (flat to the cutoff); 100 %: Q 45, a long ring */
-{
-    return 1.4142136f * fm_exp2f(-(float)pct * 0.06f);
-}
-
-static void cook_lowpass(kick_svf_t *s, int hz, int reso)   /* LPF */
-{
-    s->g = fm_tanf(FM_PI * clamp_f((float)hz) / (float)KICK_RATE);
-    s->k = reso_k(reso);
-    s->m0 = s->m1 = 0.0f;
-    s->m2 = 1.0f;
-    svf_update(s);
-}
-
 /* an EQ band: a peak, +-db at f, its width Q (Andrew Simper, "Linear trapezoidal integrated SVF", 2013). At 0 dB it
  * passes the signal unchanged and is skipped. */
 static void cook_band(kick_svf_t *s, const int16_t *b)
@@ -235,6 +232,17 @@ static float shape(int type, float u)    /* the distortion's transfer: 1 is wher
     }
 }
 
+static void cook_dist(kick_dist_t *d, const int16_t *v)
+{
+    d->type = (uint8_t)v[KD_TYPE];
+    d->in = fm_db2lin((float)v[KD_DRIVE]);
+    d->bias = (float)v[KD_BIAS] * 0.005f;   /* 100 %: half way to where the shaper bites */
+    d->zero = shape(d->type, d->bias);
+    d->dc = v[KD_BIAS] != 0 || d->type == KDT_GABBER;   /* the shapers that leave a DC offset */
+    d->out = fm_db2lin((float)v[KD_OUT]);
+    d->mix = (float)v[KD_MIX] * 0.01f;
+}
+
 void kick_cook(const kick_params_t *p, kick_coefs_t *c)
 {
     const int16_t *v = p->v;
@@ -247,18 +255,12 @@ void kick_cook(const kick_params_t *p, kick_coefs_t *c)
     c->decay_k = decay_per_sample((float)v[KP_DECAY], 60.0f);
     c->click = (float)v[KP_CLICK] * 0.006f;   /* 100 % is a burst at 0.6 */
     c->level = fm_db2lin((float)v[KP_LEVEL]);
-    c->drive = v[KP_DRIVE] ? fm_db2lin((float)v[KP_DRIVE]) : 0.0f;
-    cook_lowpass(&c->lpf, v[KP_LPF_FREQ], v[KP_LPF_RESO]);
-    c->lpf.on = v[KP_LPF_FREQ] < INFO[KP_LPF_FREQ].max || v[KP_LPF_RESO] > 0;
-    for (b = 0; b < KICK_EQ_BANDS; b++)
-        cook_band(&c->eq[b], &v[KP_EQ + KB_N * b]);
-    c->dist = (uint8_t)v[KP_DIST_TYPE];
-    c->dist_in = fm_db2lin((float)v[KP_DIST_DRIVE]);
-    c->dist_bias = (float)v[KP_DIST_BIAS] * 0.005f;   /* 100 %: half way to where the shaper bites */
-    c->dist_zero = shape(c->dist, c->dist_bias);
-    c->dist_dc = v[KP_DIST_BIAS] != 0 || c->dist == KDT_GABBER;   /* the shapers that leave a DC offset */
-    c->dist_out = fm_db2lin((float)v[KP_DIST_OUT]);
-    c->dist_mix = (float)v[KP_DIST_MIX] * 0.01f;
+    for (b = 0; b < KICK_EQ1_BANDS; b++)
+        cook_band(&c->eq1[b], &v[KP_EQ1 + KB_N * b]);
+    cook_dist(&c->d1, &v[KP_D1]);
+    for (b = 0; b < KICK_EQ2_BANDS; b++)
+        cook_band(&c->eq2[b], &v[KP_EQ2 + KB_N * b]);
+    cook_dist(&c->d2, &v[KP_D2]);
     for (b = 0; b < KICK_POST_BANDS; b++)
         cook_band(&c->post[b], &v[KP_POST + KB_N * b]);
 }
@@ -275,38 +277,35 @@ static float svf_db(const kick_svf_t *s, float t)   /* t = tan(pi hz / rate) */
     return 3.01029996f * fm_log2f(num / den);      /* 10 log10 = 3.01 log2 */
 }
 
-float kick_band_db(const kick_coefs_t *c, int what, int band, float hz)
+static const kick_svf_t *eq_bands(const kick_coefs_t *c, int eq)
 {
-    const kick_svf_t *s = what == KC_POST ? &c->post[band] : &c->eq[band];
+    return eq == KE_EQ1 ? c->eq1 : eq == KE_EQ2 ? c->eq2 : c->post;
+}
+
+float kick_band_db(const kick_coefs_t *c, int eq, int band, float hz)
+{
+    const kick_svf_t *s = &eq_bands(c, eq)[band];
     return s->on ? svf_db(s, fm_tanf(FM_PI * clamp_f(hz) / (float)KICK_RATE)) : 0.0f;
 }
 
-float kick_curve(const kick_coefs_t *c, int what, float hz)
+float kick_curve(const kick_coefs_t *c, int eq, float hz)
 {
+    const kick_svf_t *s = eq_bands(c, eq);
     float t = fm_tanf(FM_PI * clamp_f(hz) / (float)KICK_RATE), db = 0.0f;
     int b;
-    if (what == KC_POST) {
-        for (b = 0; b < KICK_POST_BANDS; b++)
-            if (c->post[b].on)
-                db += svf_db(&c->post[b], t);
-        return db;
-    }
-    if (c->lpf.on)
-        db += svf_db(&c->lpf, t);
-    for (b = 0; b < KICK_EQ_BANDS; b++)
-        if (c->eq[b].on)
-            db += svf_db(&c->eq[b], t);
+    for (b = 0; b < kick_eq_bands(eq); b++)
+        if (s[b].on)
+            db += svf_db(&s[b], t);
     return db;
 }
 
 /* ----------------------------------------------------------- the voices --- */
 static void chain_reset(kick_chain_t *ch)
 {
-    float *z = &ch->eq[0][0];
+    float *z = &ch->eq1[0][0];
     uint32_t i;
-    for (i = 0; i < (uint32_t)(sizeof ch->eq + sizeof ch->lpf + sizeof ch->post) / sizeof(float); i++)
-        z[i] = 0.0f;
-    ch->dc_x = ch->dc_y = 0.0f;
+    for (i = 0; i < (uint32_t)(sizeof ch->eq1 + sizeof ch->eq2 + sizeof ch->post + sizeof ch->dc) / sizeof(float); i++)
+        z[i] = 0.0f;                     /* (eq1, eq2, post and dc: floats, one after the other) */
     ch->quiet = QUIET_SAMPLES;           /* nothing to ring */
 }
 
@@ -314,6 +313,7 @@ void kick_engine_reset(kick_engine_t *e)
 {
     e->v[0].on = e->v[1].on = 0;
     e->cur = 0;
+    e->tap = KT_ALL;
     chain_reset(&e->ch);
 }
 
@@ -409,23 +409,16 @@ static void svf_run(const kick_svf_t *s, float *z, float *buf, uint32_t n)
     z[1] = fm_flush(z1);
 }
 
-static void drive_run(float d, float *buf, uint32_t n)
+static void dist_run(const kick_dist_t *d, float *dc, float *buf, uint32_t n)
 {
     uint32_t i;
-    for (i = 0; i < n; i++)
-        buf[i] = fm_tanhf(buf[i] * d);
-}
-
-static void dist_run(kick_chain_t *ch, const kick_coefs_t *c, float *buf, uint32_t n)
-{
-    uint32_t i;
-    int type = c->dist;
-    float x1 = ch->dc_x, y1 = ch->dc_y;
+    int type = d->type;
+    float x1 = dc[0], y1 = dc[1];
     for (i = 0; i < n; i++) {
         float x = buf[i];
-        float w = (shape(type, x * c->dist_in + c->dist_bias) - c->dist_zero) * c->dist_out;
-        float y = x + c->dist_mix * (w - x);
-        if (c->dist_dc) {                /* the bias leaves a DC offset while the kick sounds: off it goes */
+        float w = (shape(type, x * d->in + d->bias) - d->zero) * d->out;
+        float y = x + d->mix * (w - x);
+        if (d->dc) {                     /* the bias leaves a DC offset while the kick sounds: off it goes */
             float o = y - x1 + DC_R * y1;
             x1 = y;
             y1 = o;
@@ -433,26 +426,32 @@ static void dist_run(kick_chain_t *ch, const kick_coefs_t *c, float *buf, uint32
         }
         buf[i] = y;
     }
-    ch->dc_x = fm_flush(x1);
-    ch->dc_y = fm_flush(y1);
+    dc[0] = fm_flush(x1);
+    dc[1] = fm_flush(y1);
+}
+
+static void eq_run(const kick_svf_t *s, float (*z)[2], int nb, float *buf, uint32_t n)
+{
+    int b;
+    for (b = 0; b < nb; b++)
+        if (s[b].on)
+            svf_run(&s[b], z[b], buf, n);
 }
 
 void kick_chain(kick_engine_t *e, const kick_coefs_t *c, float *buf, uint32_t n)
 {
     kick_chain_t *ch = &e->ch;
-    int b;
-    if (c->drive > 0.0f)
-        drive_run(c->drive, buf, n);
-    for (b = 0; b < KICK_EQ_BANDS; b++)
-        if (c->eq[b].on)
-            svf_run(&c->eq[b], ch->eq[b], buf, n);
-    if (c->lpf.on)
-        svf_run(&c->lpf, ch->lpf, buf, n);
-    if (c->dist != KDT_OFF)
-        dist_run(ch, c, buf, n);
-    for (b = 0; b < KICK_POST_BANDS; b++)
-        if (c->post[b].on)
-            svf_run(&c->post[b], ch->post[b], buf, n);
+    eq_run(c->eq1, ch->eq1, KICK_EQ1_BANDS, buf, n);
+    if (c->d1.type != KDT_OFF)
+        dist_run(&c->d1, ch->dc[0], buf, n);
+    if (e->tap == KT_D1)
+        return;
+    eq_run(c->eq2, ch->eq2, KICK_EQ2_BANDS, buf, n);
+    if (c->d2.type != KDT_OFF)
+        dist_run(&c->d2, ch->dc[1], buf, n);
+    if (e->tap == KT_D2)
+        return;
+    eq_run(c->post, ch->post, KICK_POST_BANDS, buf, n);
 }
 
 void kick_render(kick_engine_t *e, const kick_coefs_t *c, float *out, uint32_t n)

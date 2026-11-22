@@ -4,9 +4,11 @@
  *
  *   kick_render [OUT.wav] [SEMIS] [NAME=VALUE ...] [--expect-hz HZ] [--max-ms MS]
  *
- * NAME is a parameter's name as the screen shows it (TUNE, SWEEP, ..., FREQ3, GAIN3, CUTOFF, D.DRV: app/kick/kick.c),
- * VALUE in its units (a type by its name or its number: F.TYPE=BP, D.TYPE=GABBER). It prints the kick's length, its peak and the pitch of its body (its zero crossings after the sweep), and with --expect-hz fails (exit 1) when that pitch is more than 1.5 % off. The WAV is 32-bit float, mono,
- * 44.1 kHz: what the engine made, not clipped.
+ * NAME is a parameter's name as the screen shows it (TUNE, SWEEP, ..., FREQ3, GAIN3, DRIVE1, GAIN2.2, TYPE2:
+ * app/kick/kick.c), VALUE in its units (a type by its name or its number: TYPE2=HARD). It prints the kick's length,
+ * its peak and the pitch of its body (its zero crossings after the sweep), and with --expect-hz fails (exit 1) when
+ * that pitch is more than 1.5 % off. The WAV is 32-bit float, mono, 44.1 kHz: what the engine made, before the
+ * master's limiter.
  * Build: tools/build_render.sh (gcc, in WSL or on Linux). */
 #include <math.h>
 #include <stdio.h>

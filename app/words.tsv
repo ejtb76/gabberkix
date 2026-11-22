@@ -3,8 +3,7 @@
 # url: https://ejtb76.github.io/gabberkix/words/
 GABBERKIX	gabber kicks
 SW.T	sweep time
-D.TYPE	distortion type
-D.DRV	distortion drive
 GABBER	gabber
-LPF	low-pass filter
-CUTOFF	cutoff
+DIST1	distortion 1
+DIST2	distortion 2
+EQ2	E Q 2

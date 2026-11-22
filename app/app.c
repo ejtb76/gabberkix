@@ -1,15 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only AND MPL-2.0
  * Copyright (C) 2026 Presethead. text_cat, int_text and app_say are from fm1-base's template (template/app.c),
  * Copyright (C) 2026 Charles Vestal, MPL-2.0 (base/LICENSE); the rest is GPL-3.0-only (LICENSE). */
-/* GABBERKIX: a kick designer for the FM-1. The midbody so far: a synthesized 909 with a drive, an eight-band
- * parametric EQ, a resonant lowpass, a distortion and a two-band EQ after it, then a limiter (app/kick/kick.h),
- * played by PLAY (a kick on every beat at the root, G1) and by the keys and MIDI notes (pitched, an octave down to an
+/* GABBERKIX: a kick designer for the FM-1. The midbody so far: a synthesized 909, an eight-band parametric EQ, a
+ * distortion, a four-band EQ, a second distortion and a two-band EQ, then a limiter (app/kick/kick.h), played by PLAY (a kick on every beat at the root, G1) and by the keys and MIDI notes (pitched, an octave down to an
  * octave up).
  *
  * The panel:
- *   SELECT       the page: 909, EQ, LPF (a resonant lowpass), DIST, POST, and round
- *   HOME         909      EDIT  EQ (again: the next band)            LFO  LPF
- *   FX           DIST     GLO   POST (again: the other band)
+ *   SELECT       the page: 909, EQ, DIST1, EQ2, DIST2, POST, and round
+ *   HOME         909      EDIT  EQ (again: the next band)            LFO  EQ2 (again: the next band)
+ *   FX           DIST1 (again: DIST2, and back)                      GLO  POST (again: the other band)
  *   K1..K4       the page's first four parameters; with SEL held, the next four
  *   PRESETS      tempo, 60..300 BPM
  *   PLAY         a kick on every beat, or stop
@@ -29,35 +28,33 @@
 
 /* --------------------------------------------------------------- pages --- */
 /* a page: up to eight parameters, K1..K4 and (SEL held) K1..K4 again; -1 = none. The pages follow the sound, so
- * that walking through them builds the kick step by step: the 909 (and its drive), the EQ, the lowpass, the
- * distortion, the EQ after it. On the EQ and POST pages K1 chooses a band (PS_BAND) and K2..K4 are that band's gain,
- * Q and frequency. Under them a picture: the kick's first second, the curves of the filters before the distortion
- * (each EQ band a dot, its own curve faint, the sum bright), the kick's spectrum, or the spectrum with the POST's
- * curves over it. */
-enum { V_WAVE, V_CURVE, V_SPEC, V_POST };
+ * that walking through them builds the kick step by step. On an EQ page K1 chooses a band (PS_BAND) and K2..K4 are
+ * that band's gain, Q and frequency. Under them a picture: the kick's first second (909); an EQ's bands (each a dot,
+ * its own curve faint, the sum bright) over the spectrum after the next distortion, where its sweet spots show; or
+ * the spectrum after a distortion. */
+enum { V_WAVE, V_CURVE, V_SPEC };
 enum { PS_NONE = -1, PS_BAND = -2, PS_FREQ = -3, PS_GAIN = -4, PS_Q = -5 };
 typedef struct {
     const char *name;
     int8_t p[8];
     uint8_t view;
-    int8_t mark[2];                      /* the frequency each row's line is at: a parameter, -1 none */
+    int8_t eq;                           /* an EQ page's EQ, KE_*; -1 none */
+    uint8_t tap;                         /* its spectrum: the chain up to here, KT_* */
     uint8_t button;                      /* its shortcut, B_*: lit while it shows */
     uint16_t amb, hi;                    /* its colours (the palette's two brightest steps): each page its own */
 } page_t;
 #define COLOURS(r, g, b, r2, g2, b2) RGB(r, g, b), RGB(r2, g2, b2)
-enum { PG_909, PG_EQ, PG_LPF, PG_DIST, PG_POST };
+#define EQ_KNOBS {PS_BAND, PS_GAIN, PS_Q, PS_FREQ, -1, -1, -1, -1}
+#define DIST_KNOBS(d) {(d) + KD_TYPE, (d) + KD_DRIVE, (d) + KD_BIAS, (d) + KD_OUT, (d) + KD_MIX, -1, -1, -1}
+enum { PG_909, PG_EQ, PG_D1, PG_EQ2, PG_D2, PG_POST };
 static const page_t PAGES[] = {
-    [PG_909] = {"909", {KP_SWEEP, KP_SWEEP_T, KP_HOLD, KP_DECAY, KP_TUNE, KP_CLICK, KP_LEVEL, KP_DRIVE}, V_WAVE,
-                {-1, -1},
+    [PG_909] = {"909", {KP_SWEEP, KP_SWEEP_T, KP_HOLD, KP_DECAY, KP_TUNE, KP_CLICK, KP_LEVEL, -1}, V_WAVE, -1, KT_ALL,
                 B_HOME, COLOURS(232, 76, 60, 255, 132, 112)},
-    [PG_EQ] = {"EQ", {PS_BAND, PS_GAIN, PS_Q, PS_FREQ, -1, -1, -1, -1}, V_CURVE, {-1, -1}, B_EDIT,
-               COLOURS(60, 180, 235, 150, 225, 255)},
-    [PG_LPF] = {"LPF", {KP_LPF_FREQ, KP_LPF_RESO, -1, -1, -1, -1, -1, -1}, V_CURVE, {KP_LPF_FREQ, KP_LPF_FREQ}, B_LFO,
-                COLOURS(232, 136, 30, 255, 184, 70)},
-    [PG_DIST] = {"DIST", {KP_DIST_TYPE, KP_DIST_DRIVE, KP_DIST_BIAS, KP_DIST_OUT, KP_DIST_MIX, -1, -1, -1}, V_SPEC,
-                 {-1, -1}, B_FX, COLOURS(214, 70, 200, 255, 140, 240)},
-    [PG_POST] = {"POST", {PS_BAND, PS_GAIN, PS_Q, PS_FREQ, -1, -1, -1, -1}, V_POST, {-1, -1}, B_GLO,
-                 COLOURS(80, 220, 120, 150, 255, 175)},
+    [PG_EQ] = {"EQ", EQ_KNOBS, V_CURVE, KE_EQ1, KT_D1, B_EDIT, COLOURS(60, 180, 235, 150, 225, 255)},
+    [PG_D1] = {"DIST1", DIST_KNOBS(KP_D1), V_SPEC, -1, KT_D1, B_FX, COLOURS(214, 70, 200, 255, 140, 240)},
+    [PG_EQ2] = {"EQ2", EQ_KNOBS, V_CURVE, KE_EQ2, KT_D2, B_LFO, COLOURS(110, 120, 255, 175, 185, 255)},
+    [PG_D2] = {"DIST2", DIST_KNOBS(KP_D2), V_SPEC, -1, KT_D2, B_FX, COLOURS(232, 136, 30, 255, 184, 70)},
+    [PG_POST] = {"POST", EQ_KNOBS, V_CURVE, KE_POST, KT_ALL, B_GLO, COLOURS(80, 220, 120, 150, 255, 175)},
 };
 #define NPAGES ((int)(sizeof PAGES / sizeof PAGES[0]))
 
@@ -190,7 +187,7 @@ static struct {
     uint8_t wave_lo[240], wave_hi[240];  /* the picture: each column's lowest and highest sample, 0..80 */
     uint32_t wave_ms;                    /* the kick's length; 0: longer than the picture's second */
     float spec[SPEC_BINS];               /* the kick's spectrum, dB under its loudest bin */
-    int band, pband;                     /* the band K2..K4 turn on the EQ page (0..7) and on POST (0..1) */
+    int band[KE_N];                      /* the band K2..K4 turn on each EQ page */
     uint32_t shown_kicks;
     uint8_t redraw;
 } ui;
@@ -273,30 +270,32 @@ static void key_kick(int semis)              /* main loop: a kick, played by the
     }
 }
 
-static int *band_of_page(void)           /* the band the page's knobs turn: the EQ's or POST's */
+static int *band_of_page(void)           /* the band the page's knobs turn */
 {
-    return ui.page == PG_POST ? &ui.pband : &ui.band;
+    return &ui.band[PAGES[ui.page].eq < 0 ? 0 : PAGES[ui.page].eq];
 }
 
 static int slot_param(int slot)          /* a slot's parameter: PS_BAND, -1 none, or an index into params */
 {
     int p = PAGES[ui.page].p[slot];
     if (p <= PS_FREQ)                    /* PS_FREQ, PS_GAIN, PS_Q: KB_FREQ, KB_GAIN, KB_Q */
-        return (ui.page == PG_POST ? KP_POST : KP_EQ) + KB_N * *band_of_page() + (PS_FREQ - p);
+        return kick_eq_param(PAGES[ui.page].eq) + KB_N * *band_of_page() + (PS_FREQ - p);
     return p;
 }
 
-static void band_text(char *t)           /* 1..8 on the EQ, A and B on POST */
+static char band_name(int eq, int b) { return (char)((eq == KE_POST ? 'A' : '1') + b); }   /* 1..8, 1..4, A B */
+
+static void band_text(char *t)
 {
-    t[0] = (char)((ui.page == PG_POST ? 'A' : '1') + *band_of_page());
+    t[0] = band_name(PAGES[ui.page].eq, *band_of_page());
     t[1] = 0;
 }
 
 static void band_to(int b)
 {
     char t[4];
-    int n = ui.page == PG_POST ? KICK_POST_BANDS : KICK_EQ_BANDS;
-    *band_of_page() = b < 0 ? 0 : b >= n ? n - 1 : b;
+    int n = kick_eq_bands(PAGES[ui.page].eq);
+    *band_of_page() = (b % n + n) % n;   /* round: from the last band to the first */
     band_text(t);
     app_say("BAND", t);
     ui.redraw = 1;
@@ -307,7 +306,8 @@ static void param_turn(int slot, int detents)
     int i = slot_param(slot);
     char t[12];
     if (i == PS_BAND) {
-        band_to(*band_of_page() + detents);
+        int b = *band_of_page() + detents, n = kick_eq_bands(PAGES[ui.page].eq);
+        band_to(b < 0 ? 0 : b >= n ? n - 1 : b);   /* K1 stops at the ends; EDIT, LFO and GLO go round */
         ui.focus = slot;
         ui.focus_at = plat_ms();
         return;
@@ -354,21 +354,14 @@ static void input(void)
             int p = -1;
             if (k == B_HOME)
                 p = PG_909;
-            else if (k == B_EDIT) {
-                if (ui.page == PG_EQ)            /* on the EQ page: the next band */
-                    band_to((ui.band + 1) % KICK_EQ_BANDS);
+            else if (k == B_FX)                  /* DIST1; again: DIST2, and back */
+                p = ui.page == PG_D1 ? PG_D2 : PG_D1;
+            else if (k == B_EDIT || k == B_LFO || k == B_GLO) {   /* an EQ page; again: its next band */
+                int to = k == B_EDIT ? PG_EQ : k == B_LFO ? PG_EQ2 : PG_POST;
+                if (ui.page == to)
+                    band_to(*band_of_page() + 1);
                 else
-                    p = PG_EQ;
-            }
-            else if (k == B_LFO)
-                p = PG_LPF;
-            else if (k == B_FX)
-                p = PG_DIST;
-            else if (k == B_GLO) {
-                if (ui.page == PG_POST)          /* on POST: the other band */
-                    band_to(ui.pband ^ 1);
-                else
-                    p = PG_POST;
+                    p = to;
             }
             if (p >= 0)
                 page_to(p);
@@ -408,13 +401,14 @@ static void wave_make(void)
     static float gk[SPEC_BINS], g1[SPEC_BINS], g2[SPEC_BINS];
     const kick_coefs_t *c = &coefs[coefs_cur];
     uint32_t col = 0, at = 0, per = KICK_RATE / 240u, n, b;
-    int spec = PAGES[ui.page].view == V_SPEC || PAGES[ui.page].view == V_POST;
+    int spec = PAGES[ui.page].view != V_WAVE;
     float lo = 0.0f, hi = 0.0f, top = -200.0f;
     for (b = 0; b < SPEC_BINS && spec; b++) {
         gk[b] = 2.0f * fm_cosf(FM_TWO_PI * COL_HZ(b * 4u + 2u) / (float)KICK_RATE);
         g1[b] = g2[b] = 0.0f;
     }
     kick_engine_reset(&e);
+    e.tap = PAGES[ui.page].tap;          /* the spectrum where this page listens: after the next distortion */
     kick_trigger(&e, c, 0);
     ui.wave_ms = 0;
     for (n = 0; n < (uint32_t)KICK_RATE && kick_sounding(&e); n += 256u) {
@@ -492,7 +486,7 @@ static void spec_draw(uint16_t color)
     }
 }
 
-static void curve_draw(int what, uint16_t color)   /* the sum: the EQ and the LPF, or POST */
+static void curve_draw(int what, uint16_t color)   /* an EQ's: the sum of its bands */
 {
     const kick_coefs_t *c = &coefs[coefs_cur];
     int32_t x, py = db_y(kick_curve(c, what, COL_HZ(0)));
@@ -511,8 +505,8 @@ static void curve_draw(int what, uint16_t color)   /* the sum: the EQ and the LP
 static void bands_draw(int what, int sel)
 {
     const kick_coefs_t *c = &coefs[coefs_cur];
-    int nb = what == KC_POST ? KICK_POST_BANDS : KICK_EQ_BANDS, b;
-    int base = what == KC_POST ? KP_POST : KP_EQ;
+    int nb = kick_eq_bands(what), b;
+    int base = kick_eq_param(what);
     int32_t x;
     for (b = 0; b < nb; b++) {
         if (!params.v[base + KB_N * b + KB_GAIN])
@@ -527,7 +521,7 @@ static void bands_draw(int what, int sel)
         const int16_t *v = &params.v[base + KB_N * b];
         int32_t px = hz_x((float)v[KB_FREQ]), py = db_y((float)v[KB_GAIN]);
         char t[2];
-        t[0] = what == KC_POST ? (char)('A' + b) : (char)('1' + b);
+        t[0] = band_name(what, b);
         t[1] = 0;
         if (b == sel) {
             cv_rect(px - 3, 12 + py - 3, 7, 7, C_AMB);
@@ -537,13 +531,6 @@ static void bands_draw(int what, int sel)
             cv_text(px + 4, 12 + (py > 12 ? py - 11 : py + 3), &FONT_XS, t, C_DIM);
         }
     }
-}
-
-static void mark_draw(int row)           /* a line at the lit row's frequency */
-{
-    int p = PAGES[ui.page].mark[row];
-    if (p >= 0)
-        cv_rect(hz_x((float)params.v[p]), 12, 1, WAVE_H, C_AMB);
 }
 
 static void draw(void)
@@ -575,7 +562,7 @@ static void draw(void)
         for (k = 0; k < NPAGES; k++) {
             int32_t x1 = cv_text(x, 4, &FONT_XS, PAGES[k].name, k == ui.page ? PAGES[k].hi : C_DIM);
             cv_rect(x - 1, 15, x1 - x + 2, k == ui.page ? 2 : 1, k == ui.page ? PAGES[k].hi : PAGES[k].amb);
-            x = x1 + 10;
+            x = x1 + 8;
         }
         if (pg->p[4] >= 0)               /* a page with a second row: which one the knobs turn */
             cv_text(232 - text_w(&FONT_XS, row ? "ROW 2" : "ROW 1"), 4, &FONT_XS, row ? "ROW 2" : "ROW 1", C_DIM);
@@ -601,23 +588,16 @@ static void draw(void)
     cv_begin(240, WAVE_H + 40, C_BLACK);
     cv_rect(0, 0, 240, 1, C_LINE);
     switch (pg->view) {
-    case V_CURVE:
+    case V_CURVE:                        /* the spectrum after the next distortion, faint; the bands over it */
         freq_grid();
+        spec_draw(C_LINE);
         cv_rect(0, 12 + WAVE_H / 2 - 1, 240, 1, C_DIM);   /* 0 dB */
-        mark_draw(row);
-        bands_draw(KC_PRE, ui.page == PG_EQ ? ui.band : -1);
-        curve_draw(KC_PRE, C_HI);
+        bands_draw(pg->eq, *band_of_page());
+        curve_draw(pg->eq, C_HI);
         break;
     case V_SPEC:
         freq_grid();
         spec_draw(C_HI);
-        break;
-    case V_POST:
-        freq_grid();
-        spec_draw(C_LINE);
-        cv_rect(0, 12 + WAVE_H / 2 - 1, 240, 1, C_DIM);
-        bands_draw(KC_POST, ui.pband);
-        curve_draw(KC_POST, C_HI);
         break;
     default:
         for (i = 1; i < 4u; i++)                 /* 250 ms marks */
@@ -695,10 +675,12 @@ int app_expect(const char *what, int *got)
         *got = last_semis;
     else if (!strcmp(what, "page"))
         *got = ui.page;
-    else if (!strcmp(what, "band"))
-        *got = ui.band + 1;
-    else if (!strcmp(what, "pband"))     /* POST's: 1 A, 2 B */
-        *got = ui.pband + 1;
+    else if (!strcmp(what, "band"))      /* the band chosen on EQ, EQ2 and POST (1 is A) */
+        *got = ui.band[KE_EQ1] + 1;
+    else if (!strcmp(what, "band2"))
+        *got = ui.band[KE_EQ2] + 1;
+    else if (!strcmp(what, "pband"))
+        *got = ui.band[KE_POST] + 1;
     else if (what[0] == 'p' && what[1] >= '0' && what[1] <= '9')
         *got = params.v[atoi(what + 1) % KP_COUNT];
     else

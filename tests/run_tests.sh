@@ -20,7 +20,7 @@ check render-root --expect-hz 49.00
 check render-up 12 --expect-hz 98.00
 check render-down -12 --expect-hz 24.50
 check render-tune 0 TUNE=5 --expect-hz 65.41
-check render-gabber 0 GAIN3=18 Q3=400 DRIVE=12 CUTOFF=900 RESO=60 D.TYPE=GABBER D.DRV=30 LEVEL=-6
+check render-gabber 0 GAIN3=18 Q3=400 DRIVE1=18 GAIN2.2=20 Q2.2=600 DRIVE2=24 LEVEL=-6
 if build/chain_test >"$OUT/chain.log" 2>&1; then echo "ok    chain"; else
     echo "FAIL  chain"; grep FAIL "$OUT/chain.log"; fails=$((fails + 1)); fi
 sh build.sh --host >"$OUT/host-build.log" 2>&1 || { cat "$OUT/host-build.log"; exit 1; }
