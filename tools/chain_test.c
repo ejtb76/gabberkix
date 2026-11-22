@@ -490,16 +490,18 @@ int main(void)
         snprintf(t, sizeof t, "NOISE 30 %%: %.0f dB more at 5 kHz in the body", dft_db(yb, 8820u, 5000.0) - dft_db(ya, 8820u,
                  5000.0));
         check(dft_db(yb, 8820u, 5000.0) - dft_db(ya, 8820u, 5000.0) > 12.0, t);
-        /* PERF's SCREAM: 18 dB at 1.5 kHz on the whole kick */
+        /* PERF's three peaks: 18 dB at 1.5 kHz (and at 300 Hz and 6 kHz), TOTAL a wire */
         kick_params_default(&p);
         mid_only(&p);
         kick_cook(&p, &c);
         na = kick_render_one(&c, 0, ya, N);
-        p.v[KP_PF_FREQ] = 1500;
+        p.v[KP_PF_FREQ] = 300;
+        p.v[KP_PF_FREQ2] = 1500;
+        p.v[KP_PF_FREQ3] = 6000;
         p.v[KP_PF_AMOUNT] = 18;
         kick_cook(&p, &c);
         nb = kick_render_one(&c, 0, yb, N);
-        snprintf(t, sizeof t, "PERF SCREAM 18 dB at 1.5 kHz: %+.1f dB there",
+        snprintf(t, sizeof t, "PERF's peaks at 18 dB, one at 1.5 kHz: %+.1f dB there",
                  dft_db(yb, 8820u, 1500.0) - dft_db(ya, 8820u, 1500.0));
         check(fabs(dft_db(yb, 8820u, 1500.0) - dft_db(ya, 8820u, 1500.0) - 18.0) < 1.0, t);
         /* PERF's LENGTH: +50 % sounds longer */
@@ -510,14 +512,15 @@ int main(void)
         snprintf(t, sizeof t, "PERF LENGTH +50 %%: the kick %u ms long, was %u", nb * 1000u / KICK_RATE,
                  na * 1000u / KICK_RATE);
         check(nb > na + na / 5u, t);
-        /* ENV: the tail (from 300 ms) at -24 dB; the attack and body as they were */
+        /* ENV: the tail (from 300 ms) at -24 dB, the line gliding down to it from the middle's point (100 ms); the
+           first 100 ms as they were, the gain never a step */
         kick_params_default(&p);
         kick_cook(&p, &c);
         na = kick_render_one(&c, 0, ya, N);
         p.v[KP_E_LEVEL + 3] = -24;
         kick_cook(&p, &c);
         nb = kick_render_one(&c, 0, yb, N);
-        for (j = 0; j < 8820u; j++) {
+        for (j = 0; j < 4410u; j++) {
             ea += (double)ya[j] * ya[j];
             eb += (double)yb[j] * yb[j];
         }
@@ -525,9 +528,21 @@ int main(void)
             la += (double)ya[j] * ya[j];
             lb += (double)yb[j] * yb[j];
         }
-        snprintf(t, sizeof t, "ENV, the tail at -24 dB: %.1f dB there, %.2f dB in the first 200 ms",
-                 10.0 * log10(lb / la), 10.0 * log10(eb / ea));
-        check(fabs(10.0 * log10(lb / la) + 24.0) < 1.0 && fabs(10.0 * log10(eb / ea)) < 0.1, t);
+        {
+            double step = 0.0;
+            uint32_t k2;
+            for (k2 = 1; k2 < 44100u; k2++) {
+                double s = fabs(kick_env_db(&c, k2) - kick_env_db(&c, k2 - 1));
+                if (s > step)
+                    step = s;
+            }
+            snprintf(t, sizeof t, "ENV, the tail at -24 dB: %.1f dB there, %.2f dB in the first 100 ms, the line at "
+                     "most %.3f dB a sample (no step)", 10.0 * log10(lb / la), 10.0 * log10(eb / ea), step);
+            check(fabs(10.0 * log10(lb / la) + 24.0) < 1.0 && fabs(10.0 * log10(eb / ea)) < 0.1 && step < 0.01, t);
+            snprintf(t, sizeof t, "ENV halfway from the middle to the tail (200 ms): %.1f dB (-12)",
+                     kick_env_db(&c, 8820u));
+            check(fabs(kick_env_db(&c, 8820u) + 12.0) < 0.2, t);
+        }
     }
 
     /* the dice: 300 throws; every kick as loud as a new one (never soft, never silent), its EQs extreme */
@@ -541,7 +556,10 @@ int main(void)
             int j, tries;
             float db;
             kick_params_default(&p);
-            tries = kick_randomize(&p, &seed);
+            p.v[KP_POST + KB_GAIN] = 12;         /* a colour from the kick before */
+            p.v[KP_TEQ + KB_GAIN] = -9;
+            p.v[KP_T_PUSH] = 20;
+            tries = kick_randomize(&p, &seed, NULL);
             throws += tries;
             if (tries > most)
                 most = tries;
@@ -561,8 +579,19 @@ int main(void)
                     tame++;
             }
             if (p.v[KP_X_FREQ] < 60 || p.v[KP_X_FREQ] > 200 || p.v[KP_S_GAIN] < -3 || p.v[KP_S_GAIN] > 6 ||
-                p.v[KP_S_HOLD] > 100 || p.v[KP_T_PUSH] != 3 || p.v[KP_T_CLIP] != KCL_HARD)
-                tame++;                  /* (the sub out of its ranges, or TOTAL moved) */
+                p.v[KP_S_HOLD] > 100)
+                tame++;                  /* (the sub out of its ranges) */
+            {                            /* POST and TOTAL as on a new kick, though the kick before had them coloured */
+                kick_params_t d;
+                int i2;
+                kick_params_default(&d);
+                for (i2 = KP_POST; i2 < KP_POST + KB_N * KICK_POST_BANDS; i2++)
+                    if (p.v[i2] != d.v[i2])
+                        tame++;
+                for (i2 = KP_TEQ; i2 <= KP_T_OUT; i2++)
+                    if (p.v[i2] != d.v[i2])
+                        tame++;
+            }
             if (p.v[KP_P_LEVEL] < -12 || p.v[KP_P_LEVEL] > 6 || p.v[KP_P_DECAY] < 1 || p.v[KP_P_DECAY] > 200 ||
                 p.v[KP_P_HOLD] > 10 || abs(p.v[KP_P_TUNE]) > 12 || p.v[KP_P_DRIVE] != 0)
                 tame++;                  /* (the punch out of its ranges, or its drive moved) */
@@ -579,7 +608,7 @@ int main(void)
                     tame++;
         }
         snprintf(t, sizeof t, "300 throws of the dice: %.1f .. %.1f dBFS a beat (a new kick: -11), none under -14 or "
-                 "over -8 (%d, %d), every band 9 dB or more, the 909 and the punch in their ranges, the root's body kept, EQ2 not shrill (%d not); %.2f throws a kick, %d at most",
+                 "over -8 (%d, %d), every band 9 dB or more, the 909, the punch and the sub in their ranges, the root's body kept, EQ2 not shrill, POST and TOTAL a new kick's (%d not); %.2f throws a kick, %d at most",
                  lo, hi, soft, loud, tame, throws / 300.0, most);
         check(!soft && !loud && !tame, t);
         snprintf(t, sizeof t, "the dice's DECAY, 200..900 ms evenly: %ld ms on average (550), %d of 300 under 550 ms",

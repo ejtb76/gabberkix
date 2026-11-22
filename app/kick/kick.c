@@ -94,8 +94,8 @@ static const kick_param_info_t INFO[KP_COUNT] = {
     [KP_T_OUT] = {"T.OUT", -36, 12, T_OUT, KU_DB, 1, 0},
     /* phase 6: noise in the 909 (none on a new kick), PERF (neutral), ENV (flat) */
     [KP_NOISE] = {"NOISE", 0, 100, 0, KU_PCT, 2, 0},
-    [KP_PF_FREQ] = {"SCREAM", 200, 4000, 1000, KU_HZ, 0, 0},
-    [KP_PF_AMOUNT] = {"AMOUNT", 0, 24, 0, KU_DB, 1, 0},
+    [KP_PF_FREQ] = {"PEAK1", 60, 10000, 300, KU_HZ, 0, 0},
+    [KP_PF_AMOUNT] = {"HEIGHT", 0, 24, 0, KU_DB, 1, 0},
     [KP_PF_DRIVE] = {"DRIVE", -12, 12, 0, KU_DB, 1, 0},
     [KP_PF_LENGTH] = {"LENGTH", -50, 50, 0, KU_PCT, 5, 0},
     [KP_E_LEVEL + 0] = {"ATTACK", -24, 12, 0, KU_DB, 1, 0},
@@ -105,6 +105,8 @@ static const kick_param_info_t INFO[KP_COUNT] = {
     [KP_E_TIME + 0] = {">BODY", 1, 100, 10, KU_MS, 0, 0},
     [KP_E_TIME + 1] = {">MID", 10, 500, 100, KU_MS, 0, 0},
     [KP_E_TIME + 2] = {">TAIL", 20, 2000, 300, KU_MS, 0, 0},
+    [KP_PF_FREQ2] = {"PEAK2", 60, 10000, 1000, KU_HZ, 0, 0},
+    [KP_PF_FREQ3] = {"PEAK3", 60, 10000, 3000, KU_HZ, 0, 0},
 };
 
 int kick_eq_bands(int eq)
@@ -349,12 +351,16 @@ void kick_cook(const kick_params_t *p, kick_coefs_t *c)
         c->d1.in *= g;
         c->d2.in *= g;
     }
-    {                                    /* PERF's SCREAM: a narrow peak (Q 8) on the whole kick, as a console's */
+    {                                    /* PERF: three peaks (Q 2), one height, before TOTAL */
+        static const uint8_t F[3] = {KP_PF_FREQ, KP_PF_FREQ2, KP_PF_FREQ3};
         int16_t b[KB_N];
-        b[KB_FREQ] = v[KP_PF_FREQ];
-        b[KB_GAIN] = v[KP_PF_AMOUNT];
-        b[KB_Q] = 800;
-        cook_band(&c->scream, b);
+        uint32_t j;
+        for (j = 0; j < 3u; j++) {
+            b[KB_FREQ] = v[F[j]];
+            b[KB_GAIN] = v[KP_PF_AMOUNT];
+            b[KB_Q] = 200;
+            cook_band(&c->perf[j], b);
+        }
     }
     c->noise = (float)v[KP_NOISE] * 0.003f;   /* 100 %: noise at 0.3 of the 909's sine */
     for (b = 0; b < KICK_POST_BANDS; b++)
@@ -394,7 +400,7 @@ void kick_cook(const kick_params_t *p, kick_coefs_t *c)
         uint32_t j, at = 0;
         c->e_on = 0;
         for (j = 0; j < 4u; j++) {
-            c->e_gain[j] = fm_db2lin((float)v[KP_E_LEVEL + j]);
+            c->e_db[j] = (float)v[KP_E_LEVEL + j];
             c->e_on |= v[KP_E_LEVEL + j] != 0;
         }
         for (j = 0; j < 3u; j++) {
@@ -458,6 +464,29 @@ float kick_xover_db(const kick_coefs_t *c, int low, float hz)
         return low ? -120.0f : 0.0f;
     return low ? 2.0f * svf_db(&c->x_lp, t) + 20.0f * 0.30103f * fm_log2f(c->s_gain)
                : 2.0f * svf_db(&c->x_hp, t);
+}
+
+float kick_perf_db(const kick_coefs_t *c, float hz)
+{
+    float t = fm_tanf(FM_PI * clamp_f(hz) / (float)KICK_RATE), db = 0.0f;
+    uint32_t j;
+    for (j = 0; j < 3u; j++)
+        if (c->perf[j].on)
+            db += svf_db(&c->perf[j], t);
+    return db;
+}
+
+float kick_env_db(const kick_coefs_t *c, uint32_t t)   /* a line through (0, attack), (at0, body), (at1, middle), */
+{                                                      /* (at2, tail), then the tail */
+    uint32_t t0 = 0;
+    int j;
+    for (j = 0; j < 3; j++) {
+        uint32_t t1 = c->e_at[j];
+        if (t < t1)
+            return c->e_db[j] + (c->e_db[j + 1] - c->e_db[j]) * (float)(t - t0) / (float)(t1 - t0);
+        t0 = t1;
+    }
+    return c->e_db[3];
 }
 
 float kick_curve(const kick_coefs_t *c, int eq, float hz)
@@ -692,7 +721,8 @@ static void group_reset(kick_kit_t *k)   /* group A's EQ, the crossover, TOTAL's
         z[i] = 0.0f;
     for (i = 0; i < KICK_TEQ_BANDS; i++)
         k->teq[i][0] = k->teq[i][1] = 0.0f;
-    k->scream[0] = k->scream[1] = 0.0f;
+    for (i = 0; i < 3u; i++)
+        k->perf[i][0] = k->perf[i][1] = 0.0f;
 }
 
 void kick_kit_reset(kick_kit_t *k)
@@ -726,7 +756,6 @@ void kick_kit_trigger(kick_kit_t *k, const kick_coefs_t *c, int semis)
     }
     k->s_env = 1.0f;                     /* the sub's envelope from the top */
     k->t = 0;                            /* ENV from the top */
-    k->e_now = c->e_gain[0];
     k->s_hold = c->s_hold;
     k->quiet = 0;
 }
@@ -872,8 +901,9 @@ static void kit_block(kick_kit_t *k, const kick_coefs_t *c, float *out, uint32_t
         } else if (k->tap == KT_SUB)
             for (i = 0; i < n; i++)
                 out[i] = 0.0f;
-        /* TOTAL: its EQ, the clipper, out */
+        /* PERF's peaks, then TOTAL: its EQ, the clipper, out */
         if (k->tap != KT_SUB) {
+            eq_run(c->perf, k->perf, 3, out, n);
             eq_run(c->teq, k->teq, KICK_TEQ_BANDS, out, n);
             for (i = 0; i < n; i++) {
                 float x = out[i] * c->t_push;
@@ -883,15 +913,13 @@ static void kit_block(kick_kit_t *k, const kick_coefs_t *c, float *out, uint32_t
                     x = soft_clip(x);
                 out[i] = x * c->t_out;
             }
-            if (c->scream.on)            /* PERF's SCREAM: the kick through a swept mid, as on a console */
-                svf_run(&c->scream, k->scream, out, n);
-            /* ENV: each part's level, gliding over a millisecond from one to the next */
+            /* ENV: a line through its four points, in dB, a gain each 8 samples (smooth, and cheap) */
             if (c->e_on)
-                for (i = 0; i < n; i++) {
-                    uint32_t t = k->t + i;
-                    float g = c->e_gain[t < c->e_at[0] ? 0 : t < c->e_at[1] ? 1 : t < c->e_at[2] ? 2 : 3];
-                    k->e_now += (g - k->e_now) * 0.0224f;
-                    out[i] *= k->e_now;
+                for (i = 0; i < n; i += 8u) {
+                    uint32_t j, m = n - i < 8u ? n - i : 8u;
+                    float g = fm_db2lin(kick_env_db(c, k->t + i));
+                    for (j = 0; j < m; j++)
+                        out[i + j] *= g;
                 }
         }
     }
@@ -992,12 +1020,17 @@ static void dice_dist(kick_params_t *p, int d, int drive_lo, int drive_hi, uint3
     p->v[d + KD_MIX] = 100;
 }
 
-int kick_randomize(kick_params_t *p, uint32_t *seed)
+int kick_randomize(kick_params_t *p, uint32_t *seed, float *best_db)
 {
-    kick_params_t q, best;
+    kick_params_t q, best, d;
     kick_coefs_t c;
-    float best_off = 1e9f;
-    int tries;
+    float best_off = 1e9f, bdb = -120.0f;
+    int tries, i;
+    kick_params_default(&d);             /* POST and TOTAL as on a new kick: a colour that suits one throw may not */
+    for (i = KP_POST; i < KP_POST + KB_N * KICK_POST_BANDS; i++)   /* suit the next */
+        p->v[i] = d.v[i];
+    for (i = KP_TEQ; i <= KP_T_OUT; i++)
+        p->v[i] = d.v[i];
     for (tries = 1; tries <= RND_TRIES; tries++) {
         float db = -120.0f;
         int k;
@@ -1024,10 +1057,12 @@ int kick_randomize(kick_params_t *p, uint32_t *seed)
         q.v[KP_S_DECAY] = (int16_t)(dice_in(seed, 0, 2) ? dice_in(seed, 15, 150) * 10 : INFO[KP_S_DECAY].max);
         q.v[KP_NOISE] = (int16_t)(dice_in(seed, 0, 1) ? 0 : dice_in(seed, 1, 20));   /* noise: none one time in two */
         dice_eq(&q, KE_PEQ, 300, 10000, 0, 0, 10000, 10000, seed);
-        for (k = 0; k < 3; k++) {              /* DIST2's OUT to a new kick's loudness */
-            int out = q.v[KP_D2 + KD_OUT], to;
+        for (k = 0;; k++) {                    /* DIST2's OUT to a new kick's loudness: measured, moved, */
+            int out = q.v[KP_D2 + KD_OUT], to;  /* measured again (each a beat rendered: no more than needed) */
             kick_cook(&q, &c);
             db = kick_loudness(&c);
+            if (fm_fabsf(db - RND_LOUD) <= 0.5f || k == 3)
+                break;
             to = out + (int)(RND_LOUD - db + (RND_LOUD > db ? 0.5f : -0.5f));
             to = to < INFO[KP_D2 + KD_OUT].min ? INFO[KP_D2 + KD_OUT].min
                  : to > INFO[KP_D2 + KD_OUT].max ? INFO[KP_D2 + KD_OUT].max : to;
@@ -1035,15 +1070,16 @@ int kick_randomize(kick_params_t *p, uint32_t *seed)
                 break;
             q.v[KP_D2 + KD_OUT] = (int16_t)to;
         }
-        kick_cook(&q, &c);
-        db = kick_loudness(&c);
         if (fm_fabsf(db - RND_LOUD) < best_off) {
             best_off = fm_fabsf(db - RND_LOUD);
             best = q;
+            bdb = db;
         }
         if (best_off <= RND_SPREAD)
             break;
     }
     *p = best;
+    if (best_db)
+        *best_db = bdb;
     return tries > RND_TRIES ? RND_TRIES : tries;
 }

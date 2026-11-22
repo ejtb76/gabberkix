@@ -3,7 +3,7 @@
 # DIST1 19..23 (TYPE DRIVE BIAS OUT MIX); EQ2 band b (0..3) FREQ 24+3b, GAIN 25+3b, Q 26+3b; DIST2 36..40;
 # POST A 41..43, B 44..46; PNCH 47..52 (SRC TUNE HOLD DECAY DRIVE GAIN); P.EQ 53..64; GRP.A's EQ 65..76, PUSH 77,
 # CLIP 78, OUT 79; SUB 80..84 (X.FREQ S.GAIN S.HOLD S.DECAY S.DRV); TOTAL's EQ 85..96, PUSH 97, CLIP 98, OUT 99;
-# NOISE 100; PERF 101..104 (SCREAM AMOUNT DRIVE LENGTH); ENV 105..108 (levels), 109..111 (where the parts start).
+# NOISE 100; PERF 101..104 (PEAK1 HEIGHT DRIVE LENGTH), 112..113 (PEAK2 PEAK3); ENV 105..108 (levels), 109..111 (where the parts start).
 # An EQ page: K1 band, K2 gain, K3 Q, K4 frequency.
 master 4096
 wait 300
@@ -158,13 +158,13 @@ expect p97 9
 tap OCT+
 wait 800
 shot total.png
-# ARP: the dice; as loud as a new kick (-11 dBFS a beat), POST untouched; SEL + ARP: undo, the EQ as it was (band 1
+# ARP: the dice; as loud as a new kick (-11 dBFS a beat), POST back to flat; SEL + ARP: undo, the EQ as it was (band 1
 # at -30 dB, band 2 at +24 dB); undo again: nothing (one throw back); ARP again
 tap ARP
 expect throws 1
 expect dice_db >-14
 expect dice_db <-8
-expect p42 -9
+expect p42 0
 wait 800
 shot dice1.png
 press SEL
@@ -181,17 +181,21 @@ tap ARP
 expect throws 2
 wait 400
 shot dice2.png
-# REC: PERF (12); SCREAM up to about 2 kHz, AMOUNT 18 dB, more drive, longer; REC again: ENV (11): the tail down, it
-# starts later (SEL); REC: PERF
+# REC: PERF (12); HEIGHT 18 dB, the first peak up to about 600 Hz, the third down; SEL: more drive, longer; REC again:
+# ENV (11): the tail down, it starts later (SEL); REC: PERF
 tap REC
 expect page 12
-turn K1 24
-expect p101 >1800
-turn K2 18
+turn K1 18
 expect p102 18
-turn K3 6
+turn K2 24
+expect p101 >550
+turn K4 -10
+expect p113 <2300
+press SEL
+turn K1 6
+turn K2 6
+release SEL
 expect p103 6
-turn K4 6
 expect p104 30
 wait 800
 shot perf.png
@@ -210,6 +214,7 @@ expect page 12
 # HOME: 909; SEL + K4: NOISE
 tap HOME
 press SEL
+turn K4 -50
 turn K4 5
 release SEL
 expect p100 10

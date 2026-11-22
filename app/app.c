@@ -41,8 +41,9 @@
  * that band's gain, Q and frequency. Under them a picture: the kick's first second (909); an EQ's bands (each a dot,
  * its own curve faint, the sum bright) over the spectrum after the next distortion, where its sweet spots show; or
  * the spectrum after a distortion. */
-enum { V_WAVE, V_CURVE, V_SPEC, V_PUNCH, V_XOVER, V_ENV };   /* V_ENV: the kick, ENV's four parts over it */   /* V_PUNCH: the first 50 ms, the punch over the whole kick;
-                                                        V_XOVER: the crossover's two halves over group A's spectrum */
+/* V_PUNCH: the first 50 ms, the punch over the whole kick; V_XOVER: the crossover's two halves over group A's
+ * spectrum; V_ENV: the kick, ENV's line over it; V_PERF: PERF's three peaks over the kick's spectrum */
+enum { V_WAVE, V_CURVE, V_SPEC, V_PUNCH, V_XOVER, V_ENV, V_PERF };
 enum { PS_NONE = -1, PS_BAND = -2, PS_FREQ = -3, PS_GAIN = -4, PS_Q = -5 };
 typedef struct {
     const char *name;
@@ -81,7 +82,8 @@ static const page_t PAGES[] = {
                 B_OCTUP, COLOURS(235, 235, 235, 255, 255, 255)},
     [PG_ENV] = {"ENV", {KP_E_LEVEL, KP_E_LEVEL + 1, KP_E_LEVEL + 2, KP_E_LEVEL + 3, KP_E_TIME, KP_E_TIME + 1,
                 KP_E_TIME + 2, -1}, V_ENV, -1, KT_ALL, B_REC, COLOURS(160, 220, 40, 205, 250, 120)},
-    [PG_PERF] = {"PERF", {KP_PF_FREQ, KP_PF_AMOUNT, KP_PF_DRIVE, KP_PF_LENGTH, -1, -1, -1, -1}, V_SPEC, -1, KT_ALL, B_REC,
+    [PG_PERF] = {"PERF", {KP_PF_AMOUNT, KP_PF_FREQ, KP_PF_FREQ2, KP_PF_FREQ3, KP_PF_DRIVE, KP_PF_LENGTH, -1, -1}, V_PERF,
+                 -1, KT_ALL, B_REC,
                  COLOURS(255, 70, 20, 255, 150, 100)},
 };
 #define NPAGES ((int)(sizeof PAGES / sizeof PAGES[0]))
@@ -488,6 +490,8 @@ static void page_to(int p)
 
 /* ARP: throw the dice (the 909's sweep, click and decay, the EQs, the distortions; the rest stays); SEL + ARP: back
  * to before it */
+static void draw(void);
+
 static void dice_throw(int undo)
 {
     char t[12];
@@ -498,14 +502,19 @@ static void dice_throw(int undo)
         has_undo = 0;
         app_say("UNDO", "");
     } else {
-        kick_coefs_t c;
+        float db;
         params_undo = params;
         has_undo = 1;
+        ui.msg[0][0] = 0;                /* "RANDOM ..." at once: the throw takes a moment (a beat rendered, or */
+        text_cat(ui.msg[0], "RANDOM");   /* two) */
+        ui.msg[1][0] = 0;
+        text_cat(ui.msg[1], "...");
+        ui.msg_until = plat_ms() + 5000u;
+        draw();
         dice_seed ^= plat_ms() * 2654435761u + ++dice_throws;
-        kick_randomize(&params, &dice_seed);
+        kick_randomize(&params, &dice_seed, &db);
         preset_edited = 1;
-        kick_cook(&params, &c);
-        dice_db = (int)(kick_loudness(&c) - 0.5f);
+        dice_db = (int)(db - 0.5f);
         int_text(dice_db, t);
         text_cat(t, " dB");
         app_say("RANDOM", t);
@@ -887,8 +896,30 @@ static void draw(void)
     case V_SPEC:
         freq_grid();
         spec_draw(C_HI);
-        if (ui.page == PG_PERF && params.v[KP_PF_AMOUNT])   /* where SCREAM is */
-            cv_rect(hz_x((float)params.v[KP_PF_FREQ]), 12, 1, WAVE_H, C_AMB);
+        break;
+    case V_PERF:                         /* the kick's spectrum, faint; the three peaks' curve, a dot on each */
+        freq_grid();
+        spec_draw(C_LINE);
+        cv_rect(0, 12 + WAVE_H / 2 - 1, 240, 1, C_DIM);
+        {
+            const kick_coefs_t *c = &coefs[coefs_cur];
+            static const uint8_t F[3] = {KP_PF_FREQ, KP_PF_FREQ2, KP_PF_FREQ3};
+            int32_t x, py = db_y(kick_perf_db(c, COL_HZ(0)));
+            for (x = 0; x < 240; x++) {
+                int32_t y = db_y(kick_perf_db(c, COL_HZ(x)));
+                int32_t y0 = y < py ? y : py, y1 = y < py ? py : y;
+                cv_rect(x, 12 + y0, 1, y1 - y0 + 1, C_HI);
+                py = y;
+            }
+            for (i = 0; i < 3u; i++) {
+                int32_t px = hz_x((float)params.v[F[i]]), dy = db_y((float)params.v[KP_PF_AMOUNT]);
+                char n[2];
+                n[0] = (char)('1' + i);
+                n[1] = 0;
+                cv_rect(px - 2, 12 + dy - 2, 5, 5, C_AMB);
+                cv_text(px + 4, 12 + (dy > 12 ? dy - 11 : dy + 3), &FONT_XS, n, C_GRAY);
+            }
+        }
         break;
     case V_PUNCH:                        /* the first 50 ms: the whole kick faint, the punch bright over it */
         for (i = 1; i < 10u; i++)                /* 5 ms marks */
@@ -907,18 +938,22 @@ static void draw(void)
         for (i = 0; i < 240u; i++)
             cv_rect((int32_t)i, 12 + ui.wave_hi[i], 1, ui.wave_lo[i] - ui.wave_hi[i] + 1, C_DIM);
         {
+            const kick_coefs_t *c = &coefs[coefs_cur];
             int32_t py = -1, x;
             for (x = 0; x < 240; x++) {  /* a column a 1/240 s */
-                int ms = x * 1000 / 240, part = 0, y;
-                while (part < 3 && ms >= params.v[KP_E_TIME + part])
-                    part++;
-                y = (int)((12 - params.v[KP_E_LEVEL + part]) * (WAVE_H - 1) / 36);
+                int32_t y = (int32_t)((12.0f - kick_env_db(c, (uint32_t)x * (KICK_RATE / 240u))) * (float)(WAVE_H - 1) /
+                                      36.0f + 0.5f);
                 if (py >= 0 && py != y)
                     cv_rect(x, 12 + (py < y ? py : y), 1, (py < y ? y - py : py - y) + 1, C_HI);
                 cv_rect(x, 12 + y, 1, 2, C_HI);
                 py = y;
             }
             cv_rect(0, 12 + 12 * (WAVE_H - 1) / 36, 240, 1, C_DIM);   /* 0 dB */
+            for (i = 0; i < 3u; i++) {   /* the points */
+                int32_t px = params.v[KP_E_TIME + i] * 240 / 1000;
+                if (px < 240)
+                    cv_rect(px - 2, 12 + (12 - params.v[KP_E_LEVEL + i + 1]) * (WAVE_H - 1) / 36 - 2, 5, 5, C_AMB);
+            }
         }
         break;
     default:

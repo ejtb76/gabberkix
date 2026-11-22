@@ -32,8 +32,10 @@ T.CLIP	total clip
 T.OUT	total out
 OPEN	open
 PERF	performance
-SCREAM	scream
-AMOUNT	amount
+PEAK1	peak 1
+PEAK2	peak 2
+PEAK3	peak 3
+HEIGHT	height
 LENGTH	length
 NOISE	noise
 ATTACK	attack

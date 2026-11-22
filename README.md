@@ -17,7 +17,7 @@ Built on [fm1-base](https://github.com/charlesvestal/fm1-base) and felucca-bsp, 
 midbody: 909 -> EQ (4 peaks) -> DIST1 -> EQ2 (4 peaks) -> DIST2 -> POST (2 peaks) --+
 punch:   a kick (this one, or a preset) -> GATE -> P.EQ (4 peaks) -> DRIVE -> LEVEL -+-> GROUP A: EQ -> CLIP -> OUT
 GROUP A -+-> highpass --------------------------------+
-         +-> lowpass -> SUB (envelope, drive, gain) --+-> TOTAL: EQ -> CLIP -> OUT -> SCREAM -> ENV -> limiter
+         +-> lowpass -> SUB (envelope, drive, gain) --+-> PERF -> TOTAL: EQ -> CLIP -> OUT -> ENV -> limiter
 ```
 
 The source is a blank 909: a sine whose pitch falls from a sweep to the root (G1, 49 Hz), a short noise click on the
@@ -51,11 +51,13 @@ leaves the EQs more to do.
   OFF, T.OUT), where pushing the sub over full scale glues it to the rest.
 - **NOISE** (on the 909 page): noise in the 909, at its level, so it lives in the body and is silent between kicks:
   grit for the distortions, shaped by the EQs before them. 0 %: none (a new kick's).
-- **PERF**, a page to play on while the kick runs, as on a console: SCREAM sweeps a narrow mid boost (Q 8, 200 Hz–4 kHz)
-  over the whole kick and AMOUNT sets how much (0: none); DRIVE moves both distortions' drive by ±12 dB, LENGTH the
-  909's DECAY by ±50 %. They are saved with the preset.
-- **ENV**: an envelope over the whole kick in four parts (ATTACK, BODY, MIDDLE, TAIL), each its own level (-24 to +12
-  dB), gliding from one to the next; where each starts (>BODY, >MID, >TAIL) on the second row. All at 0 dB: none.
+- **PERF**, a page to play on while the kick runs, as on a console: three peaks just before TOTAL (as if they were
+  TOTAL's own bands; TOTAL keeps its four), HEIGHT for all three (0: none) and PEAK1–PEAK3 each its frequency, to
+  sweep through the kick's screaming middle; on the second row DRIVE moves both distortions' drive by ±12 dB, LENGTH
+  the 909's DECAY by ±50 %. They are saved with the preset.
+- **ENV**: an envelope over the whole kick: a line through four points, ATTACK at the start, BODY, MIDDLE and TAIL
+  where they are set (>BODY, >MID, >TAIL, the second row), each -24 to +12 dB; it glides from one to the next, then
+  stays at the tail's. All at 0 dB: none.
 - **The master**: a peak limiter at -0.3 dBFS, then MASTER's volume.
 
 **The dice** (ARP) draw an extreme curve on both EQs, as a kick's EQ is drawn: cuts deep (15–30 dB) and narrow, boosts
@@ -63,13 +65,13 @@ wide (9–24 dB); EQ's bands between 30 Hz and 1 kHz, where they steer the first
 (35–90 Hz: the kick's body stays), EQ2's between 100 Hz and 8 kHz, with no boost above 5 kHz and none over 12 dB above
 2 kHz (not shrill). Each distortion gets a type, a drive (DIST1 6–30 dB, DIST2 milder, 0–15 dB) and now and then a
 bias. The 909 gets a SWEEP of 1–5 octaves, a CLICK of 0–80 % and a DECAY of 200–900 ms, every length as likely (its
-TUNE, SW.T, HOLD and LEVEL stay, and so does POST). The punch is off one time in two (towards the oldschool gabber
-kick); else it gets a P.GAIN of -12 to +6 dB, a P.HOLD of 0–10 ms, a P.DECAY of 1–200 ms (every length as likely), a
-P.TUNE of ±12 and its own curve on P.EQ (its SRC and P.DRV stay, and so does group A). The sub gets an X.FREQ of
-60–200 Hz, an S.GAIN of -3 to +6 dB, an S.HOLD of 0–100 ms and, two times in three, an S.DECAY of 150–1500 ms (else
-OPEN); TOTAL stays. NOISE is off one time in two, else 1–20 %; PERF and ENV stay. Then the kick is rendered once,
-measured after the limiter, and DIST2's OUT set so it is as loud as a new kick: never soft, never silent. SEL + ARP
-takes the last throw back.
+TUNE, SW.T, HOLD and LEVEL stay). The punch is off one time in two (towards the oldschool gabber kick); else it gets a
+P.GAIN of -12 to +6 dB, a P.HOLD of 0–10 ms, a P.DECAY of 1–200 ms (every length as likely), a P.TUNE of ±12 and its
+own curve on P.EQ (its SRC and P.DRV stay, and so does group A). The sub gets an X.FREQ of 60–200 Hz, an S.GAIN of -3
+to +6 dB, an S.HOLD of 0–100 ms and, two times in three, an S.DECAY of 150–1500 ms (else OPEN); POST and TOTAL go back
+to a new kick's (a colour that suits one throw may not suit the next). NOISE is off one time in two, else 1–20 %; PERF
+and ENV stay. Then the kick is rendered once, measured after the limiter, and DIST2's OUT set so it is as loud as a
+new kick: never soft, never silent. The screen says RANDOM ... while it throws. SEL + ARP takes the last throw back.
 
 A new kick is a classic gabber kick at once: DIST1 a soft TANH at 12 dB, DIST2 a GABBER at 6 dB with its OUT at -9 dB,
 its own tick on top (SELF, 8 ms, +6 dB), group A pushed 6 dB into a hard clip, its OUT at -6 dB, split at 120 Hz with
@@ -120,7 +122,7 @@ The pages' knobs:
 | **SUB** | X.FREQ, S.GAIN, S.HOLD, S.DECAY | S.DRV |
 | **TOTAL** | BAND (1–4), and its GAIN, Q, FREQ | T.PUSH, T.CLIP, T.OUT |
 | **ENV** | ATTACK, BODY, MIDDLE, TAIL (dB) | >BODY, >MID, >TAIL (ms) |
-| **PERF** | SCREAM, AMOUNT, DRIVE, LENGTH | |
+| **PERF** | HEIGHT, PEAK1, PEAK2, PEAK3 | DRIVE, LENGTH |
 
 Along the top the tabs: the pages of the layer shown (the midbody's six, the punch's two), the one shown lit, and the
 other layers by name (MID, PN, A, SUB, TOT, PERF). Each page has its own colour (909 red, EQ cyan, D1 magenta, EQ2
@@ -131,7 +133,7 @@ EQ plugin draws them (each a numbered dot with its own faint curve, the band the
 line) over the spectrum after the next distortion, where its sweet spots show (on P.EQ the punch's, on GRP.A the
 spectrum after the clipper); on a distortion page the spectrum after it; on PNCH the first 50 ms, the whole kick faint
 and the punch bright over it; on SUB the crossover's two halves (the sub's with its gain) over group A's spectrum; on
-ENV the kick with ENV's level over it; on PERF the whole kick's spectrum, a line where SCREAM is.
+ENV the kick with ENV's level over it; on PERF the three peaks' curve over the whole kick's spectrum.
 
 ## Presets
 
