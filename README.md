@@ -43,12 +43,12 @@ the screen is computed from the same coefficients the sound uses (`tools/chain_t
 
 | Control | What it does |
 | --- | --- |
-| **SELECT** | The page: 909, PRE, EQ, DIST, POST |
+| **SELECT** | The page: 909, PRE, EQ, DIST, POST, and round again |
 | **HOME** | The 909 page |
 | **EDIT** | The EQ page; again: the next band |
 | **LFO** | The PRE page |
 | **FX** | The DIST page |
-| **GLO** | The POST page |
+| **GLO** | The POST page; again: the other band |
 | **K1–K4** | The page's top row |
 | **SEL** held + **K1–K4** | The second row |
 | **PRESETS** | Tempo, 60–300 BPM (160 at power-on) |
@@ -65,9 +65,10 @@ The pages' knobs:
 | **PRE** | P.CUT, P.RESO, P.DRV | |
 | **EQ** | BAND (1–8), and its GAIN, Q, FREQ | |
 | **DIST** | D.TYPE, D.DRV, BIAS, OUT | MIX |
-| **POST** | band A: FREQ, GAIN, Q | band B |
+| **POST** | BAND (A, B), and its GAIN, Q, FREQ | |
 
-Under the knobs the screen shows the kick's first second (909); the filters before the distortion as an EQ plugin
+Along the top, the pages as tabs, the one shown lit; each page has its own colour (909 red, PRE amber, EQ cyan, DIST
+magenta, POST green), so a glance tells where you are. Under the knobs the screen shows the kick's first second (909); the filters before the distortion as an EQ plugin
 draws them, each band a numbered dot with its own faint curve, the band the knobs turn lit, their sum the bright line
 (PRE, EQ; on PRE a line at the cutoff); the kick's spectrum (DIST); or the spectrum with the POST's
 bands over it (POST).

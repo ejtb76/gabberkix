@@ -1,6 +1,6 @@
 # The midbody chain's pages: SELECT, the shortcuts (HOME, EDIT, LFO, FX, GLO), turning while PLAY runs, the pictures.
 # Pages: 0 909, 1 PRE, 2 EQ, 3 DIST, 4 POST. Parameters: PRE 7..9; EQ band b (0..7) FREQ 10+3b, GAIN 11+3b,
-# Q 12+3b; DIST 34..38; POST A 39..41, B 42..44. The EQ page: K1 band, K2 gain, K3 Q, K4 frequency.
+# Q 12+3b; DIST 34..38; POST A 39..41, B 42..44. The EQ and POST pages: K1 band, K2 gain, K3 Q, K4 frequency.
 master 4096
 wait 300
 wav chain.wav
@@ -71,24 +71,30 @@ turn K2 12
 expect p35 30
 wait 800
 shot dist.png
-# GLO: POST; band A down, band B (SEL held) up
+# GLO: POST, band A; down. GLO again: band B; up. K1 back to A
 tap GLO
 expect page 4
+expect pband 1
 turn K2 -9
 expect p40 -9
-press SEL
+tap GLO
+expect pband 2
 turn K2 6
-release SEL
 expect p43 6
+turn K4 -20
+turn K1 -1
+expect pband 1
 wait 800
 shot post.png
-# SELECT still walks every page, and stops at the ends
-turn SELECT -20
+# SELECT walks every page, round: from POST to 909, from 909 back to POST
+turn SELECT 1
 expect page 0
-turn SELECT 2
-expect page 2
-turn SELECT 20
+turn SELECT -1
 expect page 4
+turn SELECT 3
+expect page 2
+turn SELECT 5
+expect page 2
 tap PLAY
 expect playing 0
 wait 600
