@@ -765,15 +765,25 @@ static int dice_log(uint32_t *s, int lo, int hi)   /* spread evenly over octaves
     return (int)((float)lo * fm_exp2f(u * fm_log2f((float)hi / (float)lo)) + 0.5f);
 }
 
-/* an EQ: every band an extreme peak or dip, as an EQ plugin is drawn for a kick: cuts deep and narrow, boosts wide */
-static void dice_eq(kick_params_t *p, int eq, int flo, int fhi, uint32_t *s)
+/* an EQ: every band an extreme peak or dip, as an EQ plugin is drawn for a kick: cuts deep and narrow, boosts wide.
+ * No cut in [keep_lo, keep_hi] (the root's body: cut away, the kick is a tick); no boost above boost_hi; above
+ * mild_hi a boost of 12 dB at most (shrill overtones the next distortion would bring out) */
+static void dice_eq(kick_params_t *p, int eq, int flo, int fhi, int keep_lo, int keep_hi, int boost_hi, int mild_hi,
+                    uint32_t *s)
 {
     int b, base = kick_eq_param(eq);
     for (b = 0; b < kick_eq_bands(eq); b++) {
         int16_t *v = &p->v[base + KB_N * b];
-        int cut = dice_in(s, 0, 1);
-        v[KB_FREQ] = (int16_t)dice_log(s, flo, fhi);
-        v[KB_GAIN] = (int16_t)(cut ? -dice_in(s, 15, 30) : dice_in(s, 9, 24));
+        int cut = dice_in(s, 0, 1), f, k;
+        for (k = 0; k < 16; k++) {       /* a frequency the band may have */
+            f = dice_log(s, flo, fhi);
+            if (cut ? f < keep_lo || f > keep_hi : f <= boost_hi)
+                break;
+        }
+        if (k == 16)                     /* (never, in practice): the band's place is safe for a boost */
+            cut = 0, f = flo;
+        v[KB_FREQ] = (int16_t)f;
+        v[KB_GAIN] = (int16_t)(cut ? -dice_in(s, 15, 30) : dice_in(s, 9, f > mild_hi ? 12 : 24));
         v[KB_Q] = (int16_t)(cut ? dice_log(s, 200, 2500) : dice_log(s, 50, 400));
     }
 }
@@ -800,19 +810,20 @@ int kick_randomize(kick_params_t *p, uint32_t *seed)
         q.v[KP_SWEEP] = (int16_t)(dice_in(seed, 20, 100) * 5);   /* the 909's attack: a sweep of 1..5 octaves, */
         q.v[KP_CLICK] = (int16_t)(dice_in(seed, 0, 40) * 2);     /* a click of 0..80 %, */
         q.v[KP_DECAY] = (int16_t)(dice_in(seed, 40, 180) * 5);   /* a kick's length, 200..900 ms, each as likely */
-        dice_eq(&q, KE_EQ1, 30, 1000, seed);   /* before the first distortion the lows matter most */
+        dice_eq(&q, KE_EQ1, 30, 1000, 35, 90, 1000, 1000, seed);   /* the lows steer the first distortion; the */
+                                                                    /* root's body stays */
         dice_dist(&q, KP_D1, 6, 30, seed);
-        dice_eq(&q, KE_EQ2, 100, 8000, seed);  /* the overtones it made */
+        dice_eq(&q, KE_EQ2, 100, 8000, 0, 0, 5000, 2000, seed);    /* the overtones it made, not too shrill */
         dice_dist(&q, KP_D2, 0, 15, seed);     /* milder: a heavy last clip would flatten what the EQs did */
-        if (dice_in(seed, 0, 3) == 0)          /* the punch: none, one time in four; else another tick (from */
+        if (dice_in(seed, 0, 1) == 0)          /* the punch: none, one time in two; else another tick (from */
             q.v[KP_P_SRC] = KPS_OFF;           /* the preset it was from, or this kick; DRIVE and group A stay) */
         else if (q.v[KP_P_SRC] == KPS_OFF)
             q.v[KP_P_SRC] = KPS_SELF;
         q.v[KP_P_TUNE] = (int16_t)dice_in(seed, -12, 12);
         q.v[KP_P_HOLD] = (int16_t)dice_in(seed, 0, 10);
         q.v[KP_P_DECAY] = (int16_t)dice_in(seed, 1, 200);   /* its whole range, each length as likely */
-        q.v[KP_P_LEVEL] = (int16_t)dice_in(seed, -6, 12);   /* GAIN: from a hint to well on top */
-        dice_eq(&q, KE_PEQ, 300, 10000, seed);
+        q.v[KP_P_LEVEL] = (int16_t)dice_in(seed, -12, 6);   /* GAIN: from a hint to on top, not over it */
+        dice_eq(&q, KE_PEQ, 300, 10000, 0, 0, 10000, 10000, seed);
         for (k = 0; k < 3; k++) {              /* DIST2's OUT to a new kick's loudness */
             int out = q.v[KP_D2 + KD_OUT], to;
             kick_cook(&q, &c);

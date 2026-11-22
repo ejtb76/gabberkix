@@ -417,7 +417,13 @@ int main(void)
             decay += p.v[KP_DECAY];
             unpunched += p.v[KP_P_SRC] == KPS_OFF;
             pdecay += p.v[KP_P_DECAY];
-            if (p.v[KP_P_LEVEL] < -6 || p.v[KP_P_LEVEL] > 12 || p.v[KP_P_DECAY] < 1 || p.v[KP_P_DECAY] > 200 ||
+            for (j = 0; j < KICK_EQ1_BANDS; j++) {   /* the root's body: no cut at 35..90 Hz; EQ2 not shrill */
+                int f = p.v[KP_EQ1 + KB_N * j + KB_FREQ], g = p.v[KP_EQ1 + KB_N * j + KB_GAIN];
+                int f2 = p.v[KP_EQ2 + KB_N * j + KB_FREQ], g2 = p.v[KP_EQ2 + KB_N * j + KB_GAIN];
+                if ((g < 0 && f >= 35 && f <= 90) || (g2 > 0 && f2 > 5000) || (g2 > 12 && f2 > 2000))
+                    tame++;
+            }
+            if (p.v[KP_P_LEVEL] < -12 || p.v[KP_P_LEVEL] > 6 || p.v[KP_P_DECAY] < 1 || p.v[KP_P_DECAY] > 200 ||
                 p.v[KP_P_HOLD] > 10 || abs(p.v[KP_P_TUNE]) > 12 || p.v[KP_P_DRIVE] != 0)
                 tame++;                  /* (the punch out of its ranges, or its drive moved) */
             shorter += p.v[KP_DECAY] < 550;
@@ -433,15 +439,15 @@ int main(void)
                     tame++;
         }
         snprintf(t, sizeof t, "300 throws of the dice: %.1f .. %.1f dBFS a beat (a new kick: -11), none under -14 or "
-                 "over -8 (%d, %d), every band 9 dB or more and the 909 in its ranges (%d not); %.2f throws a kick, %d at most",
+                 "over -8 (%d, %d), every band 9 dB or more, the 909 and the punch in their ranges, the root's body kept, EQ2 not shrill (%d not); %.2f throws a kick, %d at most",
                  lo, hi, soft, loud, tame, throws / 300.0, most);
         check(!soft && !loud && !tame, t);
         snprintf(t, sizeof t, "the dice's DECAY, 200..900 ms evenly: %ld ms on average (550), %d of 300 under 550 ms",
                  decay / 300, shorter);
         check(decay / 300 > 520 && decay / 300 < 580 && shorter > 125 && shorter < 175, t);
-        snprintf(t, sizeof t, "the dice: no punch one time in four (%d of 300); its DECAY 1..200 ms evenly (%ld on "
+        snprintf(t, sizeof t, "the dice: no punch one time in two (%d of 300); its DECAY 1..200 ms evenly (%ld on "
                  "average)", unpunched, pdecay / 300);
-        check(unpunched > 50 && unpunched < 100 && pdecay / 300 > 85 && pdecay / 300 < 115, t);
+        check(unpunched > 125 && unpunched < 175 && pdecay / 300 > 85 && pdecay / 300 < 115, t);
     }
     if (fails)
         printf("%d failed\n", fails);

@@ -45,10 +45,11 @@ leaves the EQs more to do.
 - **The master**: a peak limiter at -0.3 dBFS, then MASTER's volume.
 
 **The dice** (ARP) draw an extreme curve on both EQs, as a kick's EQ is drawn: cuts deep (15–30 dB) and narrow,
-boosts wide (9–24 dB); EQ's bands between 30 Hz and 1 kHz, where they steer the first distortion, EQ2's between 100 Hz
-and 8 kHz. Each distortion gets a type, a drive (DIST1 6–30 dB, DIST2 milder, 0–15 dB) and now and then a bias. The
+boosts wide (9–24 dB); EQ's bands between 30 Hz and 1 kHz, where they steer the first distortion, but no cut at the
+root (35–90 Hz: the kick's body stays), EQ2's between 100 Hz and 8 kHz, with no boost above 5 kHz and none over 12 dB
+above 2 kHz (not shrill). Each distortion gets a type, a drive (DIST1 6–30 dB, DIST2 milder, 0–15 dB) and now and then a bias. The
 909 gets a SWEEP of 1–5 octaves, a CLICK of 0–80 % and a DECAY of 200–900 ms, every length as likely (its TUNE, SW.T,
-HOLD and LEVEL stay, and so does POST). The punch is off one time in four; else it gets a P.GAIN of -6 to +12 dB, a P.HOLD of 0–10 ms, a P.DECAY of 1–200
+HOLD and LEVEL stay, and so does POST). The punch is off one time in two (towards the oldschool gabber kick); else it gets a P.GAIN of -12 to +6 dB, a P.HOLD of 0–10 ms, a P.DECAY of 1–200
 ms (every length as likely), a P.TUNE of ±12 and its own curve on P.EQ (its SRC and P.DRV stay, and so does group A). Then the kick is rendered once,
 measured after the limiter, and DIST2's OUT set so it is as loud as a new kick: never soft, never silent. SEL + ARP
 takes the last throw back.
