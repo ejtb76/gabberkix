@@ -30,9 +30,7 @@ static const kick_param_info_t INFO[KP_COUNT] = {
     [KP_DECAY] = {"DECAY", 10, 4000, 450, KU_MS, 0, 0},
     [KP_CLICK] = {"CLICK", 0, 100, 25, KU_PCT, 2, 0},
     [KP_LEVEL] = {"LEVEL", -36, 12, 0, KU_DB, 1, 0},
-    [KP_PRE_FREQ] = {"P.CUT", 20, 19800, 19800, KU_HZ, 0, 0},
-    [KP_PRE_RESO] = {"P.RESO", 0, 100, 0, KU_PCT, 2, 0},
-    [KP_PRE_DRIVE] = {"P.DRV", 0, 48, 0, KU_DB, 1, 0},
+    [KP_DRIVE] = {"DRIVE", 0, 48, 0, KU_DB, 1, 0},
     BAND(KP_EQ + 0 * KB_N, "1", 40),
     BAND(KP_EQ + 1 * KB_N, "2", 80),
     BAND(KP_EQ + 2 * KB_N, "3", 160),
@@ -41,6 +39,8 @@ static const kick_param_info_t INFO[KP_COUNT] = {
     BAND(KP_EQ + 5 * KB_N, "6", 1250),
     BAND(KP_EQ + 6 * KB_N, "7", 2500),
     BAND(KP_EQ + 7 * KB_N, "8", 5000),
+    [KP_LPF_FREQ] = {"CUTOFF", 20, 19800, 19800, KU_HZ, 0, 0},
+    [KP_LPF_RESO] = {"RESO", 0, 100, 0, KU_PCT, 2, 0},
     [KP_DIST_TYPE] = {"D.TYPE", 0, KDT_N - 1, KDT_GABBER, KU_LIST, 1, DIST_T},   /* a new kick: a classic gabber */
     [KP_DIST_DRIVE] = {"D.DRV", 0, 60, 18, KU_DB, 1, 0},
     [KP_DIST_BIAS] = {"BIAS", -100, 100, 0, KU_PCT, 5, 0},
@@ -194,7 +194,7 @@ static float reso_k(int pct)             /* 0 %: Q 0.71 (flat to the cutoff); 10
     return 1.4142136f * fm_exp2f(-(float)pct * 0.06f);
 }
 
-static void cook_lowpass(kick_svf_t *s, int hz, int reso)   /* PRE */
+static void cook_lowpass(kick_svf_t *s, int hz, int reso)   /* LPF */
 {
     s->g = fm_tanf(FM_PI * clamp_f((float)hz) / (float)KICK_RATE);
     s->k = reso_k(reso);
@@ -247,9 +247,9 @@ void kick_cook(const kick_params_t *p, kick_coefs_t *c)
     c->decay_k = decay_per_sample((float)v[KP_DECAY], 60.0f);
     c->click = (float)v[KP_CLICK] * 0.006f;   /* 100 % is a burst at 0.6 */
     c->level = fm_db2lin((float)v[KP_LEVEL]);
-    cook_lowpass(&c->pre, v[KP_PRE_FREQ], v[KP_PRE_RESO]);
-    c->pre.on = v[KP_PRE_FREQ] < INFO[KP_PRE_FREQ].max || v[KP_PRE_RESO] > 0;
-    c->pre_drive = v[KP_PRE_DRIVE] ? fm_db2lin((float)v[KP_PRE_DRIVE]) : 0.0f;
+    c->drive = v[KP_DRIVE] ? fm_db2lin((float)v[KP_DRIVE]) : 0.0f;
+    cook_lowpass(&c->lpf, v[KP_LPF_FREQ], v[KP_LPF_RESO]);
+    c->lpf.on = v[KP_LPF_FREQ] < INFO[KP_LPF_FREQ].max || v[KP_LPF_RESO] > 0;
     for (b = 0; b < KICK_EQ_BANDS; b++)
         cook_band(&c->eq[b], &v[KP_EQ + KB_N * b]);
     c->dist = (uint8_t)v[KP_DIST_TYPE];
@@ -291,8 +291,8 @@ float kick_curve(const kick_coefs_t *c, int what, float hz)
                 db += svf_db(&c->post[b], t);
         return db;
     }
-    if (c->pre.on)
-        db += svf_db(&c->pre, t);
+    if (c->lpf.on)
+        db += svf_db(&c->lpf, t);
     for (b = 0; b < KICK_EQ_BANDS; b++)
         if (c->eq[b].on)
             db += svf_db(&c->eq[b], t);
@@ -302,9 +302,9 @@ float kick_curve(const kick_coefs_t *c, int what, float hz)
 /* ----------------------------------------------------------- the voices --- */
 static void chain_reset(kick_chain_t *ch)
 {
-    float *z = &ch->pre[0];
+    float *z = &ch->eq[0][0];
     uint32_t i;
-    for (i = 0; i < (uint32_t)(sizeof ch->pre + sizeof ch->eq + sizeof ch->post) / sizeof(float); i++)
+    for (i = 0; i < (uint32_t)(sizeof ch->eq + sizeof ch->lpf + sizeof ch->post) / sizeof(float); i++)
         z[i] = 0.0f;
     ch->dc_x = ch->dc_y = 0.0f;
     ch->quiet = QUIET_SAMPLES;           /* nothing to ring */
@@ -441,13 +441,13 @@ void kick_chain(kick_engine_t *e, const kick_coefs_t *c, float *buf, uint32_t n)
 {
     kick_chain_t *ch = &e->ch;
     int b;
-    if (c->pre_drive > 0.0f)
-        drive_run(c->pre_drive, buf, n);
-    if (c->pre.on)
-        svf_run(&c->pre, ch->pre, buf, n);
+    if (c->drive > 0.0f)
+        drive_run(c->drive, buf, n);
     for (b = 0; b < KICK_EQ_BANDS; b++)
         if (c->eq[b].on)
             svf_run(&c->eq[b], ch->eq[b], buf, n);
+    if (c->lpf.on)
+        svf_run(&c->lpf, ch->lpf, buf, n);
     if (c->dist != KDT_OFF)
         dist_run(ch, c, buf, n);
     for (b = 0; b < KICK_POST_BANDS; b++)

@@ -1,14 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only AND MPL-2.0
  * Copyright (C) 2026 Presethead. text_cat, int_text and app_say are from fm1-base's template (template/app.c),
  * Copyright (C) 2026 Charles Vestal, MPL-2.0 (base/LICENSE); the rest is GPL-3.0-only (LICENSE). */
-/* GABBERKIX: a kick designer for the FM-1. The midbody so far: a synthesized 909 through a lowpass with drive, an
- * eight-band parametric EQ, a distortion and a two-band EQ after it, then a limiter (app/kick/kick.h), played by
- * PLAY (a kick on every beat at the root, G1) and by the keys and MIDI notes (pitched, an octave down to an octave
- * up).
+/* GABBERKIX: a kick designer for the FM-1. The midbody so far: a synthesized 909 with a drive, an eight-band
+ * parametric EQ, a resonant lowpass, a distortion and a two-band EQ after it, then a limiter (app/kick/kick.h),
+ * played by PLAY (a kick on every beat at the root, G1) and by the keys and MIDI notes (pitched, an octave down to an
+ * octave up).
  *
  * The panel:
- *   SELECT       the page: 909, PRE (a lowpass with drive), EQ, DIST, POST
- *   HOME         909      EDIT  EQ (again: the next band)            LFO  PRE
+ *   SELECT       the page: 909, EQ, LPF (a resonant lowpass), DIST, POST, and round
+ *   HOME         909      EDIT  EQ (again: the next band)            LFO  LPF
  *   FX           DIST     GLO   POST (again: the other band)
  *   K1..K4       the page's first four parameters; with SEL held, the next four
  *   PRESETS      tempo, 60..300 BPM
@@ -28,10 +28,12 @@
 #define BEAT_UNITS (KICK_RATE * 60u)     /* the beat clock: bpm added a frame, a beat at this many */
 
 /* --------------------------------------------------------------- pages --- */
-/* a page: up to eight parameters, K1..K4 and (SEL held) K1..K4 again; -1 = none. On the EQ and POST pages K1
- * chooses a band (PS_BAND) and K2..K4 are that band's gain, Q and frequency. Under them a picture: the kick's first second, the curves
- * of the filters before the distortion (each EQ band a dot, its own curve faint, the sum bright), the kick's
- * spectrum, or the spectrum with the POST's curves over it. */
+/* a page: up to eight parameters, K1..K4 and (SEL held) K1..K4 again; -1 = none. The pages follow the sound, so
+ * that walking through them builds the kick step by step: the 909 (and its drive), the EQ, the lowpass, the
+ * distortion, the EQ after it. On the EQ and POST pages K1 chooses a band (PS_BAND) and K2..K4 are that band's gain,
+ * Q and frequency. Under them a picture: the kick's first second, the curves of the filters before the distortion
+ * (each EQ band a dot, its own curve faint, the sum bright), the kick's spectrum, or the spectrum with the POST's
+ * curves over it. */
 enum { V_WAVE, V_CURVE, V_SPEC, V_POST };
 enum { PS_NONE = -1, PS_BAND = -2, PS_FREQ = -3, PS_GAIN = -4, PS_Q = -5 };
 typedef struct {
@@ -43,14 +45,15 @@ typedef struct {
     uint16_t amb, hi;                    /* its colours (the palette's two brightest steps): each page its own */
 } page_t;
 #define COLOURS(r, g, b, r2, g2, b2) RGB(r, g, b), RGB(r2, g2, b2)
-enum { PG_909, PG_PRE, PG_EQ, PG_DIST, PG_POST };
+enum { PG_909, PG_EQ, PG_LPF, PG_DIST, PG_POST };
 static const page_t PAGES[] = {
-    [PG_909] = {"909", {KP_SWEEP, KP_SWEEP_T, KP_HOLD, KP_DECAY, KP_TUNE, KP_CLICK, KP_LEVEL, -1}, V_WAVE, {-1, -1},
+    [PG_909] = {"909", {KP_SWEEP, KP_SWEEP_T, KP_HOLD, KP_DECAY, KP_TUNE, KP_CLICK, KP_LEVEL, KP_DRIVE}, V_WAVE,
+                {-1, -1},
                 B_HOME, COLOURS(232, 76, 60, 255, 132, 112)},
-    [PG_PRE] = {"PRE", {KP_PRE_FREQ, KP_PRE_RESO, KP_PRE_DRIVE, -1, -1, -1, -1, -1}, V_CURVE,
-                {KP_PRE_FREQ, KP_PRE_FREQ}, B_LFO, COLOURS(232, 136, 30, 255, 184, 70)},
     [PG_EQ] = {"EQ", {PS_BAND, PS_GAIN, PS_Q, PS_FREQ, -1, -1, -1, -1}, V_CURVE, {-1, -1}, B_EDIT,
                COLOURS(60, 180, 235, 150, 225, 255)},
+    [PG_LPF] = {"LPF", {KP_LPF_FREQ, KP_LPF_RESO, -1, -1, -1, -1, -1, -1}, V_CURVE, {KP_LPF_FREQ, KP_LPF_FREQ}, B_LFO,
+                COLOURS(232, 136, 30, 255, 184, 70)},
     [PG_DIST] = {"DIST", {KP_DIST_TYPE, KP_DIST_DRIVE, KP_DIST_BIAS, KP_DIST_OUT, KP_DIST_MIX, -1, -1, -1}, V_SPEC,
                  {-1, -1}, B_FX, COLOURS(214, 70, 200, 255, 140, 240)},
     [PG_POST] = {"POST", {PS_BAND, PS_GAIN, PS_Q, PS_FREQ, -1, -1, -1, -1}, V_POST, {-1, -1}, B_GLO,
@@ -358,7 +361,7 @@ static void input(void)
                     p = PG_EQ;
             }
             else if (k == B_LFO)
-                p = PG_PRE;
+                p = PG_LPF;
             else if (k == B_FX)
                 p = PG_DIST;
             else if (k == B_GLO) {
@@ -374,7 +377,7 @@ static void input(void)
         if ((e = plat_enc((int)k)) == 0)
             continue;
         if (k == EN_SELECT) {
-            page_to(((ui.page + (e > 0 ? 1 : -1)) % NPAGES + NPAGES) % NPAGES);   /* round: POST, 909, PRE .. */
+            page_to(((ui.page + (e > 0 ? 1 : -1)) % NPAGES + NPAGES) % NPAGES);   /* round: POST, 909, EQ .. */
         } else if (k == EN_PRESET) {
             char t[8];
             tempo = clamp(tempo + e, TEMPO_MIN, TEMPO_MAX);
@@ -489,7 +492,7 @@ static void spec_draw(uint16_t color)
     }
 }
 
-static void curve_draw(int what, uint16_t color)   /* the sum: PRE and the EQ, or POST */
+static void curve_draw(int what, uint16_t color)   /* the sum: the EQ and the LPF, or POST */
 {
     const kick_coefs_t *c = &coefs[coefs_cur];
     int32_t x, py = db_y(kick_curve(c, what, COL_HZ(0)));

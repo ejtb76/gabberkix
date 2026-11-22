@@ -8,7 +8,8 @@
  * the same samples). 1.0 is full scale; inside the engine the signal may go far above it, only the master stops it.
  *
  * The midbody so far:
- *   909 -> PRE (lowpass with drive) -> EQ (8 peaks) -> DIST -> POST (2 peaks)
+ *   909 -> DRIVE -> EQ (8 peaks) -> LPF (a resonant lowpass) -> DIST -> POST (2 peaks)
+ * The drive makes the 909's overtones, the EQ boosts and cuts them, the lowpass tames them: what the distortion gets.
  * The 909 is a sine whose pitch falls from a sweep to the root, a click on top, a hold-and-decay envelope. Its two
  * voices (the kick that sounds and the one it cut off, fading) are summed, then the chain runs once on the sum. The
  * filters before the distortion choose what it distorts: that is where the kick's character is made. Every filter is
@@ -22,7 +23,7 @@
  *   kick_render(e, c, out, n)            n mono samples, written (audio side); the chain follows c at once
  *   kick_render_one(c, semis, out, max)  one whole kick from silence, offline; returns its length in samples
  *   kick_master(env, buf, n)             the master: a peak limiter at -0.3 dBFS (env: its state, 0 at the start)
- *   kick_curve(c, what, hz)              the gain of PRE and the EQ, or of POST, at hz, dB (the screen)
+ *   kick_curve(c, what, hz)              the gain of the EQ and the LPF, or of POST, at hz, dB (the screen)
  *   kick_band_db(c, what, b, hz)         one EQ or POST band's gain at hz, dB (the screen) */
 #ifndef KICK_H
 #define KICK_H
@@ -47,12 +48,12 @@ enum {
     KP_DECAY,                            /* amplitude: then down to -60 dB in, ms */
     KP_CLICK,                            /* the click on the attack, % */
     KP_LEVEL,                            /* the layer's level, dB */
-    KP_PRE_FREQ,                         /* PRE, a lowpass: its cutoff, Hz (19.8 kHz: open) */
-    KP_PRE_RESO,                         /* % (0: Q 0.71, 100: Q 45) */
-    KP_PRE_DRIVE,                        /* dB into a tanh before the filter; 0: none (all three neutral: no PRE) */
+    KP_DRIVE,                            /* dB into a tanh, before the EQ: the overtones it shapes; 0: none */
     KP_EQ,                               /* EQ band b's parameter j: KP_EQ + KB_N * b + j (FREQ Hz, GAIN dB, */
     KP_EQ_END = KP_EQ + KB_N * KICK_EQ_BANDS,   /* Q 1/100) */
-    KP_DIST_TYPE = KP_EQ_END,            /* DIST: KDT_* */
+    KP_LPF_FREQ = KP_EQ_END,             /* LPF, a lowpass: its cutoff, Hz (19.8 kHz: open) */
+    KP_LPF_RESO,                         /* % (0: Q 0.71, 100: Q 45; open and 0: no LPF) */
+    KP_DIST_TYPE,                        /* DIST: KDT_* */
     KP_DIST_DRIVE,                       /* dB in */
     KP_DIST_BIAS,                        /* an offset before the shaper, %: asymmetry, even harmonics */
     KP_DIST_OUT,                         /* dB out */
@@ -94,8 +95,8 @@ typedef struct {
     float decay_k;                       /* the amplitude's decay per sample after the hold */
     float click;                         /* the click's level */
     float level;                         /* linear */
-    kick_svf_t pre;                      /* on: the cutoff below 19.8 kHz, or a resonance */
-    float pre_drive;                     /* linear; 0: no drive */
+    float drive;                         /* linear; 0: no drive */
+    kick_svf_t lpf;                      /* on: the cutoff below 19.8 kHz, or a resonance */
     kick_svf_t eq[KICK_EQ_BANDS];
     uint8_t dist;                        /* KDT_* */
     float dist_in, dist_bias, dist_zero, dist_out, dist_mix;   /* dist_zero: the shaper at the bias (taken off) */
@@ -117,7 +118,7 @@ typedef struct {
 } kick_voice_t;
 
 typedef struct {                         /* the chain's state: it rings on after the voices stop */
-    float pre[2], eq[KICK_EQ_BANDS][2], post[KICK_POST_BANDS][2];
+    float eq[KICK_EQ_BANDS][2], lpf[2], post[KICK_POST_BANDS][2];
     float dc_x, dc_y;                    /* the DC blocker after the distortion */
     uint32_t quiet;                      /* samples the chain's output has been silent */
 } kick_chain_t;
@@ -136,7 +137,7 @@ int kick_sounding(const kick_engine_t *e);
 void kick_master(float *env, float *buf, uint32_t n);
 void kick_chain(kick_engine_t *e, const kick_coefs_t *c, float *buf, uint32_t n);   /* the chain alone, in place
                                                                                        (the tests' sines) */
-enum { KC_PRE, KC_POST };                /* kick_curve: PRE and EQ (what the distortion gets), or POST */
+enum { KC_PRE, KC_POST };                /* kick_curve: the EQ and the LPF (what the distortion gets), or POST */
 float kick_curve(const kick_coefs_t *c, int what, float hz);
 float kick_band_db(const kick_coefs_t *c, int what, int band, float hz);   /* KC_PRE: an EQ band; KC_POST: POST's */
 

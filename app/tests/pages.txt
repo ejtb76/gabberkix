@@ -1,6 +1,6 @@
 # The midbody chain's pages: SELECT, the shortcuts (HOME, EDIT, LFO, FX, GLO), turning while PLAY runs, the pictures.
-# Pages: 0 909, 1 PRE, 2 EQ, 3 DIST, 4 POST. Parameters: PRE 7..9; EQ band b (0..7) FREQ 10+3b, GAIN 11+3b,
-# Q 12+3b; DIST 34..38; POST A 39..41, B 42..44. The EQ and POST pages: K1 band, K2 gain, K3 Q, K4 frequency.
+# Pages: 0 909, 1 EQ, 2 LPF, 3 DIST, 4 POST. Parameters: DRIVE 7; EQ band b (0..7) FREQ 8+3b, GAIN 9+3b, Q 10+3b;
+# LPF 32..33; DIST 34..38; POST A 39..41, B 42..44. The EQ and POST pages: K1 band, K2 gain, K3 Q, K4 frequency.
 master 4096
 wait 300
 wav chain.wav
@@ -8,7 +8,7 @@ tap PLAY
 wait 400
 # EDIT: the EQ page, band 1; again: the next band, round from 8 to 1
 tap EDIT
-expect page 2
+expect page 1
 expect band 1
 tap EDIT
 expect band 2
@@ -18,28 +18,28 @@ tap EDIT
 expect band 1
 # band 1 (40 Hz): -30 dB, narrow
 turn K2 -30
-expect p11 -30
+expect p9 -30
 turn K3 40
-expect p12 >250
+expect p10 >250
 # band 2 (80 Hz): down to about 60 Hz, +24 dB, wide
 turn K1 1
 expect band 2
 turn K4 -9
 turn K2 24
-expect p14 24
+expect p12 24
 turn K3 -6
 # band 3 (160 Hz): up to about 200 Hz, -30 dB
 turn K1 1
 turn K4 8
 turn K2 -30
-expect p17 -30
+expect p15 -30
 # band 6 (1.25 kHz): down to about 840 Hz, a very narrow notch
 turn K1 3
 expect band 6
 turn K4 -13
 turn K2 -30
 turn K3 110
-expect p26 -30
+expect p24 -30
 # band 5 (640 Hz): +15 dB
 turn K1 -1
 turn K2 15
@@ -49,18 +49,23 @@ shot eq.png
 tap HOME
 expect page 0
 tap EDIT
-expect page 2
-expect band 5
-# LFO: PRE; the cutoff down, resonance, drive
-tap LFO
 expect page 1
+expect band 5
+# LFO: LPF; the cutoff down, resonance
+tap LFO
+expect page 2
 turn K1 -40
+expect p32 <19800
 turn K2 50
-expect p8 >40
-turn K3 12
-expect p9 12
+expect p33 >40
 wait 800
-shot pre.png
+shot lpf.png
+# HOME: 909; SEL and K4, the drive
+tap HOME
+press SEL
+turn K4 12
+release SEL
+expect p7 12
 # FX: DIST (GABBER, 18 dB on a new kick): HARD, more push
 tap FX
 expect page 3
@@ -95,6 +100,8 @@ turn SELECT 3
 expect page 2
 turn SELECT 5
 expect page 2
+turn SELECT -1
+expect page 1
 tap PLAY
 expect playing 0
 wait 600

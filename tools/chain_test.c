@@ -74,7 +74,7 @@ static void band_check(int f, int gain, int q)
     check(worst < 0.5, what);
 }
 
-static void pre_check(int f, int reso)   /* PRE, the lowpass: measured against kick_curve */
+static void lpf_check(int f, int reso)   /* the LPF: measured against kick_curve */
 {
     static const double AT[] = {30.0, 100.0, 400.0, 800.0, 1000.0, 1250.0, 3000.0, 10000.0};
     kick_params_t p;
@@ -83,8 +83,8 @@ static void pre_check(int f, int reso)   /* PRE, the lowpass: measured against k
     double worst = 0.0;
     uint32_t i;
     neutral(&p);
-    p.v[KP_PRE_FREQ] = (int16_t)f;
-    p.v[KP_PRE_RESO] = (int16_t)reso;
+    p.v[KP_LPF_FREQ] = (int16_t)f;
+    p.v[KP_LPF_RESO] = (int16_t)reso;
     kick_cook(&p, &c);
     for (i = 0; i < sizeof AT / sizeof AT[0]; i++) {
         double m = sine_gain_db(&c, AT[i]), want = kick_curve(&c, KC_PRE, (float)AT[i]);
@@ -94,7 +94,7 @@ static void pre_check(int f, int reso)   /* PRE, the lowpass: measured against k
         if (d > worst)
             worst = d;
     }
-    snprintf(what, sizeof what, "PRE lowpass %d Hz reso %d%%: curve = sound (worst %.2f dB)", f, reso, worst);
+    snprintf(what, sizeof what, "LPF %d Hz reso %d%%: curve = sound (worst %.2f dB)", f, reso, worst);
     check(worst < 0.5, what);
 }
 
@@ -156,9 +156,9 @@ int main(void)
     band_check(820, -30, 2500);          /* a notch as narrow as an EQ plugin's */
     band_check(3600, -26, 400);
     band_check(60, 24, 80);
-    pre_check(1000, 0);
-    pre_check(1000, 80);
-    pre_check(250, 100);
+    lpf_check(1000, 0);
+    lpf_check(1000, 80);
+    lpf_check(250, 100);
 
     /* the band curves add up to the curve (what the screen draws: each band, and their sum) */
     {
@@ -215,10 +215,10 @@ int main(void)
     p.v[KP_EQ + KB_N * 7 + KB_FREQ] = 19800;
     finite_and_done(&p, "eight bands at +30 dB, Q 30 (20 Hz .. 19.8 kHz)");
     kick_params_default(&p);
-    p.v[KP_PRE_RESO] = 100, p.v[KP_PRE_DRIVE] = 48, p.v[KP_PRE_FREQ] = 20;
+    p.v[KP_LPF_RESO] = 100, p.v[KP_DRIVE] = 48, p.v[KP_LPF_FREQ] = 20;
     p.v[KP_DIST_TYPE] = KDT_GABBER, p.v[KP_DIST_DRIVE] = 60, p.v[KP_DIST_BIAS] = 100;
-    finite_and_done(&p, "PRE at 20 Hz, full resonance and drive, GABBER at 60 dB");
-    p.v[KP_PRE_FREQ] = 19700, p.v[KP_DIST_TYPE] = KDT_HARD;
+    finite_and_done(&p, "DRIVE 48 dB, the LPF at 20 Hz with full resonance, GABBER at 60 dB");
+    p.v[KP_LPF_FREQ] = 19700, p.v[KP_DIST_TYPE] = KDT_HARD;
     finite_and_done(&p, "the same at 19.7 kHz, HARD");
 
     /* a new kick (GABBER at 18 dB, OUT -9 dB) is about as loud as the clean one, and the master keeps it under
