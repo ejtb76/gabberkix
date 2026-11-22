@@ -3,10 +3,11 @@
 **A hardcore kick designer for the M-VAVE FM-1.** A kick in three layers: a midbody for character, a punch for the
 attack and a sub for the low end, pressed into one kick by groups driven hard into clippers.
 
-> **Status: phase 4 of 6.** The three layers are in: the midbody (a synthesized 909 through two rounds of EQ and
+> **Status: phase 6 of 6.** The three layers are in: the midbody (a synthesized 909 through two rounds of EQ and
 > distortion), the punch (the hard tick at the start of a kick), pressed together in group A's clipper, and the sub
 > (group A's lows, split off), both into TOTAL's clipper; played on every beat or pitched from the keys and MIDI, with
-> sixteen presets and a randomizer. The post-editing follows (`kick-firmware-instructions.md`).
+> sixteen presets, a randomizer, NOISE, PERF, ENV and BOUNCE (`kick-firmware-instructions.md`; DOUBLE, a doubled
+> punch, left out: the punch and the clippers make hard transients already).
 
 Built on [fm1-base](https://github.com/charlesvestal/fm1-base) and felucca-bsp, from Felucca by Leo Kuroshita
 (Hügelton Instruments).
@@ -14,7 +15,7 @@ Built on [fm1-base](https://github.com/charlesvestal/fm1-base) and felucca-bsp, 
 ## The sound so far
 
 ```
-midbody: 909 -> EQ (4 peaks) -> DIST1 -> EQ2 (4 peaks) -> DIST2 -> POST (2 peaks) --+
+midbody: 909 or a preset's kick (BOUNCE) -> EQ (4 peaks) -> DIST1 -> EQ2 (4 peaks) -> DIST2 -> POST (2 peaks) --+
 punch:   a kick (this one, or a preset) -> GATE -> P.EQ (4 peaks) -> DRIVE -> LEVEL -+-> GROUP A: EQ -> CLIP -> OUT
 GROUP A -+-> highpass --------------------------------+
          +-> lowpass -> SUB (envelope, drive, gain) --+-> PERF -> TOTAL: EQ -> CLIP -> OUT -> ENV -> limiter
@@ -49,6 +50,15 @@ leaves the EQs more to do.
   S.DRV a soft saturation.
 - **TOTAL**: group A's highs and the sub together: an EQ of four peaks, then a clipper (T.PUSH, T.CLIP HARD, SOFT or
   OFF, T.OUT), where pushing the sub over full scale glues it to the rest.
+- **SRC**, BOUNCE: the midbody's source, the 909 or a saved preset's whole kick (P1–P16: the keys that hold one;
+  with none saved yet it stays on the 909). The preset is rendered once into a buffer (up to a second; again when it
+  is saved anew, and on loading a preset that uses one) and played as a sample, so the chain goes over a finished kick
+  again: bounce it, add more effects, repeat. Choosing a preset blanks the chain (no distortion, EQs flat, no punch,
+  the groups and the sub wires, the 909's envelope wide open), so you hear the preset as it was and build from there;
+  SEL + ARP takes that back. PITCH plays the sample up or down (as a sampler: up is shorter), START leaves its first
+  milliseconds out, S.LEVEL; the 909 page still shapes it (HOLD and DECAY its level, SWEEP a pitch dive, CLICK and
+  NOISE on top), the keys and MIDI play it pitched. One level: a preset that itself bounces another plays with the 909
+  as its source. Presets stay parameters alone: the sample is rendered again from them.
 - **NOISE** (on the 909 page): noise in the 909, at its level, so it lives in the body and is silent between kicks:
   grit for the distortions, shaped by the EQs before them. 0 %: none (a new kick's).
 - **PERF**, a page to play on while the kick runs, as on a console: three peaks just before TOTAL (as if they were
@@ -88,8 +98,8 @@ screen are computed from the same coefficients the sound uses (`tools/chain_test
 
 | Control | What it does |
 | --- | --- |
-| **SELECT** | The page: 909, EQ, D1, EQ2, D2, POST, PNCH, P.EQ, GRP.A, SUB, TOTAL, ENV, PERF, and round again; in the order of the sound, so walking through them builds the kick |
-| **HOME** | The 909 page |
+| **SELECT** | The page: SRC, 909, EQ, D1, EQ2, D2, POST, PNCH, P.EQ, GRP.A, SUB, TOTAL, ENV, PERF, and round again; in the order of the sound, so walking through them builds the kick |
+| **HOME** | The 909 page; again: SRC, and back |
 | **EDIT** | The EQ page; again: the next band |
 | **FX** | D1; again: D2, and back |
 | **ENV** | PNCH; again: P.EQ, and back |
@@ -115,6 +125,7 @@ The pages' knobs:
 
 | Page | K1–K4 | SEL held + K1–K4 |
 | --- | --- | --- |
+| **SRC** | SOURCE, PITCH, START, S.LEVEL | |
 | **909** | SWEEP (how far above the root the pitch starts, in octaves), SW.T (how fast it falls), HOLD, DECAY (to -60 dB) | TUNE (the root, ±12 semitones from G1), CLICK, LEVEL, NOISE |
 | **EQ**, **EQ2**, **POST**, **P.EQ** | BAND (1–4, 1–4, A–B, 1–4), and its GAIN, Q, FREQ | |
 | **D1**, **D2** | TYPE, DRIVE, BIAS, OUT | MIX |
@@ -126,15 +137,16 @@ The pages' knobs:
 | **PERF** | HEIGHT, PEAK1, PEAK2, PEAK3 | DRIVE, LENGTH |
 
 Along the top the tabs: the pages of the layer shown (the midbody's six, the punch's two), the one shown lit, and the
-other layers by name (MID, PN, A, SUB, TOT, PERF). Each page has its own colour (909 red, EQ cyan, D1 magenta, EQ2
-blue, D2 amber, POST green, PNCH yellow, P.EQ teal, GRP.A pink, SUB violet, TOTAL white, ENV lime, PERF orange), so a
-glance tells where you are. Under the knobs the screen shows the kick's first second (909), zoomed so its body fills
-the height (the zoom at the right, X2, X3: the tick at the start may run into the edge); on an EQ page its bands as an
-EQ plugin draws them (each a numbered dot with its own faint curve, the band the knobs turn lit, their sum the bright
-line) over the spectrum after the next distortion, where its sweet spots show (on P.EQ the punch's, on GRP.A the
-spectrum after the clipper); on a distortion page the spectrum after it; on PNCH the first 50 ms, the whole kick faint
-and the punch bright over it; on SUB the crossover's two halves (the sub's with its gain) over group A's spectrum; on
-ENV the kick with ENV's level over it; on PERF the three peaks' curve over the whole kick's spectrum.
+other layers by name (MID, PN, A, SUB, TOT, PERF; by their letter when the line is full). Each page has its own colour
+(SRC grey, 909 red, EQ cyan, D1 magenta, EQ2 blue, D2 amber, POST green, PNCH yellow, P.EQ teal, GRP.A pink, SUB
+violet, TOTAL white, ENV lime, PERF orange), so a glance tells where you are. Under the knobs the screen shows the
+kick's first second (909), zoomed so its body fills the height (the zoom at the right, X2, X3: the tick at the start
+may run into the edge); on an EQ page its bands as an EQ plugin draws them (each a numbered dot with its own faint
+curve, the band the knobs turn lit, their sum the bright line) over the spectrum after the next distortion, where its
+sweet spots show (on P.EQ the punch's, on GRP.A the spectrum after the clipper); on a distortion page the spectrum
+after it; on PNCH the first 50 ms, the whole kick faint and the punch bright over it; on SUB the crossover's two
+halves (the sub's with its gain) over group A's spectrum; on ENV the kick with ENV's level over it; on PERF the three
+peaks' curve over the whole kick's spectrum.
 
 ## Presets
 

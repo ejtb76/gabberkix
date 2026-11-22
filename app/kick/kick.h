@@ -7,6 +7,8 @@
  * Float throughout (the FM-1's FPU is single precision; every build uses -ffp-contract=off, so all of them compute
  * the same samples). 1.0 is full scale; inside the engine the signal may go far above it, only the master stops it.
  *
+ * The midbody's source is the 909, or (BOUNCE) a saved preset's whole kick, rendered once into a buffer and played as
+ * a sample, so the chain goes over a finished kick again: bounce it, add more, repeat.
  * The kick so far, two layers into group A:
  *   midbody: 909 -> EQ (4 peaks) -> DIST 1 -> EQ 2 (4 peaks) -> DIST 2 -> POST (2 peaks) --+
  *   punch:   a kick (this one, or a preset) -> GATE (its attack alone) -> P.EQ -> DRIVE ---+-> GROUP A: A.EQ -> CLIP
@@ -116,7 +118,12 @@ enum {
     KP_PF_FREQ2 = KP_E_END,              /* PERF's second and third peaks' frequencies, Hz */
     KP_PF_FREQ3,
     KP_PERF_END,
-    KP_COUNT = KP_PERF_END
+    KP_SRC = KP_PERF_END,                /* SRC: the midbody's source: 0 the 909, 1..16 preset 1..16's kick (BOUNCE) */
+    KP_SRC_PITCH,                        /* the sample played this far up or down, semitones (a sampler: up is shorter) */
+    KP_SRC_START,                        /* from this far in, ms (the bounced kick's old attack left out) */
+    KP_SRC_LEVEL,                        /* its level, dB */
+    KP_SRC_END,
+    KP_COUNT = KP_SRC_END
 };
 #define KICK_PARAMS_V1 (KP_POST + KB_N * KICK_POST_BANDS)   /* the parameters of the first presets (no punch) */
 
@@ -193,6 +200,10 @@ typedef struct {
     uint8_t e_on;                        /* ENV: not all at 0 dB */
     float e_db[4];                       /* its four points' levels, dB */
     uint32_t e_at[3];                    /* where points 1..3 are, samples (point 0 at the start) */
+    /* BOUNCE: the midbody's source a sample (kick_set_source), or none: the 909 */
+    const int16_t *smp;
+    uint32_t smp_len, smp_start;         /* samples */
+    float smp_ratio, smp_level;          /* its speed at the root (PITCH, TUNE); its level, with the int16 scale */
 } kick_coefs_t;
 
 void kick_init(void);
@@ -205,6 +216,9 @@ typedef struct {
     uint32_t hold;
     float decay_k, sweep_k, click, level, body_noise;
     uint32_t noise, noise2;
+    const int16_t *smp;                  /* BOUNCE: the sample it plays, or 0: the sine */
+    uint32_t smp_len;
+    float pos, smp_level;                /* where, in samples */
     float fade;                          /* 1, or falling to 0 when a new kick took over */
 } kick_voice_t;
 
@@ -260,6 +274,16 @@ float kick_xover_db(const kick_coefs_t *c, int low, float hz);   /* the crossove
 int kick_randomize(kick_params_t *p, uint32_t *seed, float *db);   /* the throws it took; db: the kick's loudness */
 float kick_perf_db(const kick_coefs_t *c, float hz);   /* PERF's three peaks at hz, dB (the screen) */
 float kick_env_db(const kick_coefs_t *c, uint32_t t);  /* ENV at t samples from the kick, dB (the screen) */
+/* BOUNCE: the sample a kick with SRC != 0 plays (main loop; 0: none, the 909 then). One sample for all: one level of
+ * bouncing. A kick is at most KICK_SRC_MAX samples, KICK_SRC_SCALE full scale in an int16 */
+#define KICK_SRC_MAX KICK_RATE
+#define KICK_SRC_SCALE 8192.0f                   /* +-4 full scale: the kick before the limiter may go over 1 */
+void kick_set_source(const int16_t *buf, uint32_t len);
+uint32_t kick_bounce(const kick_params_t *p, int16_t *buf, uint32_t max);   /* a kick (its own source the 909: one
+                                                                             * level) into buf; its length */
+void kick_params_fresh(kick_params_t *p);   /* the chain blank over a bounced source: the EQs flat, no distortion, no
+                                             * punch, the groups and the sub wires, the 909 a straight window on the
+                                             * sample: it sounds as the preset did */
 float kick_loudness(const kick_coefs_t *c);
 
 #endif

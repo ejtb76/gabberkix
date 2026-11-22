@@ -9,7 +9,7 @@
  *
  * The panel:
  *   SELECT       the page: 909, EQ, D1, EQ2, D2, POST (the midbody), PNCH, P.EQ (the punch), GRP.A, and round
- *   HOME         909      EDIT  EQ (again: the next band)            LFO  EQ2 (again: the next band)
+ *   HOME         909 (again: SRC, and back)      EDIT  EQ (again: the next band)            LFO  EQ2 (again: the next band)
  *   FX           D1 (again: D2, and back)                            GLO  POST (again: the other band)
  *   ENV          PNCH (again: P.EQ, and back)                        SEQ  GRP.A (again: its next band)
  *   OCT-         SUB                                                 OCT+ TOTAL (again: its next band)
@@ -57,13 +57,16 @@ typedef struct {
 #define COLOURS(r, g, b, r2, g2, b2) RGB(r, g, b), RGB(r2, g2, b2)
 #define EQ_KNOBS {PS_BAND, PS_GAIN, PS_Q, PS_FREQ, -1, -1, -1, -1}
 #define DIST_KNOBS(d) {(d) + KD_TYPE, (d) + KD_DRIVE, (d) + KD_BIAS, (d) + KD_OUT, (d) + KD_MIX, -1, -1, -1}
-enum { PG_909, PG_EQ, PG_D1, PG_EQ2, PG_D2, PG_POST, PG_PUNCH, PG_PEQ, PG_A, PG_SUB, PG_TOT, PG_ENV, PG_PERF };
+enum { PG_SRC, PG_909, PG_EQ, PG_D1, PG_EQ2, PG_D2, PG_POST, PG_PUNCH, PG_PEQ, PG_A, PG_SUB, PG_TOT, PG_ENV, PG_PERF };
 /* the layers, for the tab bar: the midbody's pages, the punch's, group A, the sub, TOTAL */
 enum { L_MID, L_PUNCH, L_A, L_SUB, L_TOT, L_PERF, L_N };
-static const uint8_t PAGE_LAYER[] = {L_MID, L_MID, L_MID, L_MID, L_MID, L_MID, L_PUNCH, L_PUNCH, L_A, L_SUB, L_TOT,
-                                     L_TOT, L_PERF};
-static const char *const LAYER_NAME[L_N] = {"MID", "PN", "A", "SUB", "TOT", "PERF"};   /* (short: all on one line) */
+static const uint8_t PAGE_LAYER[] = {L_MID, L_MID, L_MID, L_MID, L_MID, L_MID, L_MID, L_PUNCH, L_PUNCH, L_A, L_SUB,
+                                     L_TOT, L_TOT, L_PERF};
+static const char *const LAYER_NAME[L_N] = {"MID", "PN", "A", "SUB", "TOT", "PERF"};
+static const char *const LAYER_SHORT[L_N] = {"M", "P", "A", "S", "T", "F"};   /* (when the line is full) */
 static const page_t PAGES[] = {
+    [PG_SRC] = {"SRC", {KP_SRC, KP_SRC_PITCH, KP_SRC_START, KP_SRC_LEVEL, -1, -1, -1, -1}, V_WAVE, -1, KT_ALL, B_HOME,
+                COLOURS(150, 150, 160, 220, 220, 230)},
     [PG_909] = {"909", {KP_SWEEP, KP_SWEEP_T, KP_HOLD, KP_DECAY, KP_TUNE, KP_CLICK, KP_LEVEL, KP_NOISE}, V_WAVE, -1, KT_ALL,
                 B_HOME, COLOURS(232, 76, 60, 255, 132, 112)},
     [PG_EQ] = {"EQ", EQ_KNOBS, V_CURVE, KE_EQ1, KT_D1, B_EDIT, COLOURS(60, 180, 235, 150, 225, 255)},
@@ -99,6 +102,11 @@ static uint32_t dice_seed, dice_throws;
 static int dice_db;                      /* the last throw's loudness, dBFS (the host's checks) */
 static kick_coefs_t coefs[2];            /* cooked from params: the main loop writes one, then flips */
 static kick_coefs_t src_coefs[2];        /* the punch's source, when it is a preset (its midbody) */
+static int16_t bounce_buf[KICK_SRC_MAX] PLAT_POOL;   /* BOUNCE: the source preset's kick, rendered (88 KB) */
+static int bounce_slot = -1;             /* the slot in it; -1 none */
+static uint32_t bounce_saves = ~0u;      /* the saves when it was rendered (a save may change that slot) */
+static uint32_t bounce_at;               /* SOURCE last turned: rendered once the knob rests */
+static volatile uint8_t muted;           /* the render silent (while the bounce is rendered)  */
 static volatile uint8_t coefs_cur;
 static kick_kit_t engine;                /* the audio interrupt's */
 
@@ -123,7 +131,8 @@ static void cook(void)
     int src = params.v[KP_P_SRC];
     kick_cook(&params, &coefs[next]);
     if (src >= KPS_P1 && preset_params(src - KPS_P1, &sp)) {   /* a preset as the punch: its midbody (an empty */
-        kick_cook(&sp, &src_coefs[next]);                       /* slot: this kick's own) */
+        sp.v[KP_SRC] = 0;                                       /* slot: this kick's own; its own source the 909) */
+        kick_cook(&sp, &src_coefs[next]);
         coefs[next].p_src = &src_coefs[next];
     }
     coefs_cur = next;                    /* the render reads coefs[coefs_cur] at a block's start: a turn is heard at
@@ -164,6 +173,12 @@ static float lim_env;                    /* the master limiter's */
 
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
+    if (muted) {                         /* (a bounce being rendered) */
+        uint32_t i;
+        for (i = 0; i < 2u * n; i++)
+            lr[i] = 0;
+        return;
+    }
     uint32_t done = 0, i;
     float gain = (float)master_q12 * (8388607.0f / 4096.0f);
     midi_in();
@@ -469,7 +484,32 @@ static void param_turn(int slot, int detents)
     }
     if (i < 0)
         return;
-    params.v[i] = (int16_t)kick_param_step(i, params.v[i], detents);
+    if (i == KP_SRC) {                   /* SOURCE: the 909, or a key that holds a preset (empty ones skipped) */
+        int v = params.v[i], d = detents > 0 ? 1 : -1, k;
+        if (!presets.used) {
+            app_say("SAVE + KEY", "FIRST");
+            return;
+        }
+        for (k = 0; k < (detents < 0 ? -detents : detents); k++) {
+            int w = v + d;
+            while (w > 0 && w <= NPRESETS && !(presets.used >> (w - 1) & 1u))
+                w += d;
+            if (w < 0 || w > NPRESETS)
+                break;
+            v = w;
+        }
+        if (v == params.v[i])
+            return;
+        if (v) {                         /* a new source: the chain blank, so the bounce sounds as the preset did */
+            params_undo = params;
+            has_undo = 1;
+            params.v[i] = (int16_t)v;
+            kick_params_fresh(&params);
+        } else
+            params.v[i] = 0;
+        bounce_at = plat_ms();
+    } else
+        params.v[i] = (int16_t)kick_param_step(i, params.v[i], detents);
     preset_edited = 1;
     cook();
     kick_param_text(i, params.v[i], t);
@@ -493,7 +533,7 @@ static void page_to(int p)
  * to before it */
 static void draw(void);
 
-static void busy_draw(void)              /* "RANDOM ...", big, in a box mid-screen, over whatever shows */
+static void busy_draw(const char *word)  /* "RANDOM ...", big, in a box mid-screen, over whatever shows */
 {
     int32_t w;
     cv_begin(200, 64, C_BLACK);
@@ -501,8 +541,8 @@ static void busy_draw(void)              /* "RANDOM ...", big, in a box mid-scre
     cv_rect(0, 62, 200, 2, C_HI);
     cv_rect(0, 0, 2, 64, C_HI);
     cv_rect(198, 0, 2, 64, C_HI);
-    w = text_w(&APP_BIG_FONT, "RANDOM");
-    cv_text(100 - w / 2, 10, &APP_BIG_FONT, "RANDOM", C_WHITE);
+    w = text_w(&APP_BIG_FONT, word);
+    cv_text(100 - w / 2, 10, &APP_BIG_FONT, word, C_WHITE);
     w = text_w(&FONT_B, "...");
     cv_text(100 - w / 2, 40, &FONT_B, "...", C_HI);
     cv_blit(20, 88);
@@ -521,7 +561,7 @@ static void dice_throw(int undo)
         float db;
         params_undo = params;
         has_undo = 1;
-        busy_draw();                     /* at once, mid-screen: the throw takes a moment (a beat rendered, or two) */
+        busy_draw("RANDOM");             /* at once, mid-screen: the throw takes a moment (a beat rendered, or two) */
         dice_seed ^= plat_ms() * 2654435761u + ++dice_throws;
         kick_randomize(&params, &dice_seed, &db);
         preset_edited = 1;
@@ -566,8 +606,8 @@ static void input(void)
     for (k = 0; k < NB; k++)                     /* the page shortcuts */
         if ((btn >> k & 1u) && !(ui.btn >> k & 1u)) {
             int p = -1;
-            if (k == B_HOME)
-                p = PG_909;
+            if (k == B_HOME)                     /* 909; again: SRC, and back */
+                p = ui.page == PG_909 ? PG_SRC : PG_909;
             else if (k == B_FX)                  /* D1; again: D2, and back */
                 p = ui.page == PG_D1 ? PG_D2 : PG_D1;
             else if (k == B_ENV)                 /* PNCH; again: P.EQ, and back */
@@ -847,15 +887,21 @@ static void draw(void)
     cv_rect(0, 0, 240, 1, C_LINE);
     {   /* the tabs: the pages of this page's layer, this one lit and underlined, each in its colour; the other
            layers by their name */
-        int32_t x = 4;
-        int k, l = -1, here = PAGE_LAYER[ui.page];
+        int32_t x = 4, need = 4;
+        int k, l = -1, here = PAGE_LAYER[ui.page], shrt;
+        for (k = 0; k < NPAGES; k++)     /* the line's width with the other layers' names: too wide, their letters */
+            if (PAGE_LAYER[k] == here)
+                need += text_w(&FONT_XS, PAGES[k].name) + 4;
+            else if (k == 0 || PAGE_LAYER[k] != PAGE_LAYER[k - 1])
+                need += text_w(&FONT_XS, LAYER_NAME[PAGE_LAYER[k]]) + 4;
+        shrt = need > 236;
         for (k = 0; k < NPAGES; k++) {
             int lay = PAGE_LAYER[k], first = lay != l;
             int32_t x1;
             l = lay;
             if (lay != here) {
                 if (first) {
-                    x1 = cv_text(x, 4, &FONT_XS, LAYER_NAME[lay], C_DIM);
+                    x1 = cv_text(x, 4, &FONT_XS, shrt ? LAYER_SHORT[lay] : LAYER_NAME[lay], C_DIM);
                     cv_rect(x - 1, 16, x1 - x + 2, 1, PAGES[k].amb);
                     x = x1 + 4;
                 }
@@ -1032,7 +1078,39 @@ void app_splash(void)
 void app_ui_init(void)
 {
     lcd_fill(0, 0, 240, 240, C_BLACK);
+    ui.page = PG_909;                    /* the 909 first (SRC is before it, for a bounce) */
     ui.focus = -1;
+    ui.wave_dirty = 1;
+    ui.redraw = 1;
+}
+
+/* BOUNCE: the source preset's kick into the buffer, when it is not there yet (another slot, or saved again), once
+ * SOURCE has rested a moment; silent meanwhile */
+static void bounce_check(uint32_t now)
+{
+    int src = params.v[KP_SRC] - 1;
+    kick_params_t sp;
+    if (src < 0 || !preset_params(src, &sp)) {
+        if (bounce_slot >= 0) {
+            kick_set_source(0, 0);
+            bounce_slot = -1;
+            cook();
+        }
+        return;
+    }
+    if (src == bounce_slot && bounce_saves == preset_saves)
+        return;
+    if (now - bounce_at < 300u)
+        return;
+    busy_draw("BOUNCE");
+    muted = 1;
+    kick_set_source(0, 0);
+    cook();
+    kick_set_source(bounce_buf, kick_bounce(&sp, bounce_buf, KICK_SRC_MAX));
+    bounce_slot = src;
+    bounce_saves = preset_saves;
+    cook();
+    muted = 0;
     ui.wave_dirty = 1;
     ui.redraw = 1;
 }
@@ -1042,6 +1120,7 @@ void app_frame(void)
     uint32_t now = plat_ms();
     input();
     speak();
+    bounce_check(now);
     if (ui.wave_dirty && now - ui.wave_at >= 80u) {
         ui.wave_dirty = 0;
         ui.wave_at = now;
@@ -1099,6 +1178,8 @@ int app_expect(const char *what, int *got)
         *got = (int)preset_saves;
     else if (!strcmp(what, "used"))
         *got = presets.used;
+    else if (!strcmp(what, "bounce"))    /* the slot rendered as the source, 1..16; 0 none */
+        *got = bounce_slot + 1;
     else if (!strcmp(what, "zoom"))      /* the 909 picture's zoom, x10 */
         *got = ui.zoom10;
     else if (!strcmp(what, "throws"))    /* the dice: how often thrown; the last kick's loudness, dBFS */

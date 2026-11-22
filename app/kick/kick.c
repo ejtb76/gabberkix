@@ -24,6 +24,16 @@ static const char *const DIST_T[KDT_N] = {"OFF", "TANH", "HARD", "GABBER"};
 static const char *const SRC_T[KPS_N] = {"OFF", "SELF", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8",
                                          "P9", "P10", "P11", "P12", "P13", "P14", "P15", "P16"};
 static const char *const CLIP_T[KCL_N] = {"OFF", "HARD", "SOFT"};
+static const char *const SOURCE_T[17] = {"909", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11", "P12",
+                                         "P13", "P14", "P15", "P16"};
+static const int16_t *src_buf;          /* BOUNCE's sample (kick_set_source) */
+static uint32_t src_len;
+
+void kick_set_source(const int16_t *buf, uint32_t len)
+{
+    src_buf = buf;
+    src_len = buf ? len : 0u;
+}
 
 /* an EQ band, at its first parameter: a gain-0 peak at f (so it does nothing until its GAIN moves), Q 1 */
 #define BAND(at, n, f)                                                                                               \
@@ -107,6 +117,11 @@ static const kick_param_info_t INFO[KP_COUNT] = {
     [KP_E_TIME + 2] = {">TAIL", 20, 2000, 300, KU_MS, 0, 0},
     [KP_PF_FREQ2] = {"PEAK2", 60, 10000, 1000, KU_HZ, 0, 0},
     [KP_PF_FREQ3] = {"PEAK3", 60, 10000, 3000, KU_HZ, 0, 0},
+    /* BOUNCE: the 909 on a new kick */
+    [KP_SRC] = {"SOURCE", 0, 16, 0, KU_LIST, 1, SOURCE_T},
+    [KP_SRC_PITCH] = {"PITCH", -24, 24, 0, KU_ST, 1, 0},
+    [KP_SRC_START] = {"START", 0, 100, 0, KU_MS, 1, 0},
+    [KP_SRC_LEVEL] = {"S.LEVEL", -24, 12, 0, KU_DB, 1, 0},
 };
 
 int kick_eq_bands(int eq)
@@ -340,6 +355,11 @@ void kick_cook(const kick_params_t *p, kick_coefs_t *c)
     c->decay_k = decay_per_sample((float)v[KP_DECAY] * (1.0f + (float)v[KP_PF_LENGTH] * 0.01f), 60.0f);   /* PERF */
     c->click = (float)v[KP_CLICK] * 0.006f;   /* 100 % is a burst at 0.6 */
     c->level = fm_db2lin((float)v[KP_LEVEL]);
+    c->smp = v[KP_SRC] && src_buf && src_len > 1u ? src_buf : 0;   /* BOUNCE: a sample, or the 909 */
+    c->smp_len = src_len;
+    c->smp_start = (uint32_t)((float)v[KP_SRC_START] * MS);
+    c->smp_ratio = fm_exp2f((float)(v[KP_SRC_PITCH] + v[KP_TUNE]) / 12.0f);
+    c->smp_level = fm_db2lin((float)v[KP_SRC_LEVEL]) / KICK_SRC_SCALE;
     for (b = 0; b < KICK_EQ1_BANDS; b++)
         cook_band(&c->eq1[b], &v[KP_EQ1 + KB_N * b]);
     cook_dist(&c->d1, &v[KP_D1]);
@@ -539,6 +559,16 @@ static void voice_start(kick_voice_t *v, const kick_coefs_t *c, int semis)
     v->noise = 0x12345678u;              /* the same click every time: a kick is a kick */
     v->noise2 = 0x9E3779B9u;             /* (and the same body noise) */
     v->body_noise = c->noise;
+    v->smp = c->smp;                     /* BOUNCE: the sample from START, at its speed (the sweep on top) */
+    if (v->smp) {
+        v->smp_len = c->smp_len;
+        v->pos = (float)c->smp_start;
+        v->smp_level = c->smp_level;
+        v->inc0 = c->smp_ratio * r;      /* (samples a sample, now) */
+        v->inc_sweep = v->inc0 * c->sweep_ratio;
+        if (v->inc_sweep > 8.0f * v->inc0)
+            v->inc_sweep = 8.0f * v->inc0;
+    }
     v->fade = 1.0f;
     v->on = 1;
 }
@@ -565,10 +595,23 @@ static void voice_render(kick_voice_t *v, float *out, uint32_t n)
         float s, nz;
         float inc = v->inc0 + v->inc_sweep * v->sweep;
         v->sweep *= v->sweep_k;
-        v->phase += inc;
-        if (v->phase >= 1.0f)
-            v->phase -= 1.0f;
-        s = fm_sin_turns(v->phase) * v->amp;
+        if (v->smp) {                    /* BOUNCE: the sample, read between its samples */
+            uint32_t k = (uint32_t)v->pos;
+            float f = v->pos - (float)k, a, b;
+            if (k + 1u >= v->smp_len) {
+                v->on = 0;
+                return;
+            }
+            a = (float)v->smp[k];
+            b = (float)v->smp[k + 1u];
+            s = (a + (b - a) * f) * v->smp_level * v->amp;
+            v->pos += inc;
+        } else {
+            v->phase += inc;
+            if (v->phase >= 1.0f)
+                v->phase -= 1.0f;
+            s = fm_sin_turns(v->phase) * v->amp;
+        }
         if (v->hold)
             v->hold--;
         else
@@ -1086,4 +1129,50 @@ int kick_randomize(kick_params_t *p, uint32_t *seed, float *best_db)
     if (best_db)
         *best_db = bdb;
     return tries > RND_TRIES ? RND_TRIES : tries;
+}
+
+/* ------------------------------------------------------------- BOUNCE --- */
+uint32_t kick_bounce(const kick_params_t *p, int16_t *buf, uint32_t max)
+{
+    static kick_kit_t k;
+    static float blk[256];
+    kick_params_t q = *p;
+    kick_coefs_t c;
+    uint32_t n = 0, i;
+    q.v[KP_SRC] = 0;                     /* one level: the preset's own source is the 909 */
+    kick_cook(&q, &c);
+    kick_kit_reset(&k);
+    kick_kit_trigger(&k, &c, 0);
+    while (n < max && kick_kit_sounding(&k)) {
+        uint32_t m = max - n < 256u ? max - n : 256u;
+        kick_kit_render(&k, &c, blk, m);
+        for (i = 0; i < m; i++) {
+            float x = blk[i] * KICK_SRC_SCALE;
+            buf[n + i] = (int16_t)(x > 32767.0f ? 32767.0f : x < -32768.0f ? -32768.0f : x);
+        }
+        n += m;
+    }
+    if (n >= max && kick_kit_sounding(&k)) {   /* longer than the buffer: the last 10 ms faded */
+        uint32_t f = KICK_RATE / 100u;
+        for (i = 0; i < f; i++)
+            buf[n - f + i] = (int16_t)((float)buf[n - f + i] * (float)(f - i) / (float)f);
+    }
+    return n;
+}
+
+void kick_params_fresh(kick_params_t *p)
+{
+    kick_params_t d;
+    int src = p->v[KP_SRC], i;
+    kick_params_default(&d);
+    kick_params_upgrade(&d, KICK_PARAMS_V1);   /* no punch, group A, the sub and TOTAL wires */
+    for (i = 0; i < KP_COUNT; i++)
+        p->v[i] = d.v[i];
+    p->v[KP_D1 + KD_TYPE] = KDT_OFF;
+    p->v[KP_D2 + KD_TYPE] = KDT_OFF;
+    p->v[KP_SWEEP] = 0;                  /* the 909's envelope wide open over the sample, no dive, no click */
+    p->v[KP_CLICK] = 0;
+    p->v[KP_HOLD] = INFO[KP_HOLD].max;
+    p->v[KP_DECAY] = INFO[KP_DECAY].max;
+    p->v[KP_SRC] = (int16_t)src;
 }

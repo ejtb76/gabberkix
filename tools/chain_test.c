@@ -545,6 +545,40 @@ int main(void)
         }
     }
 
+    /* BOUNCE: a preset's kick into a buffer, played as the midbody's source with the chain blank, sounds as the
+       preset did (the int16 buffer its only difference) */
+    {
+        static int16_t smp[KICK_SRC_MAX];
+        static float orig[KICK_SRC_MAX], bnc[KICK_SRC_MAX];
+        uint32_t ns, no, nb, j;
+        double d = 0.0, e = 0.0;
+        char t[160];
+        kick_params_default(&p);
+        p.v[KP_EQ1 + KB_GAIN] = 12;      /* a preset with some colour */
+        kick_cook(&p, &c);
+        no = kick_render_one(&c, 0, orig, KICK_SRC_MAX);
+        ns = kick_bounce(&p, smp, KICK_SRC_MAX);
+        kick_set_source(smp, ns);
+        p.v[KP_SRC] = 1;
+        kick_params_fresh(&p);
+        kick_cook(&p, &c);
+        nb = kick_render_one(&c, 0, bnc, KICK_SRC_MAX);
+        for (j = 0; j < no && j < nb; j++) {
+            d += (double)(bnc[j] - orig[j]) * (bnc[j] - orig[j]);
+            e += (double)orig[j] * orig[j];
+        }
+        snprintf(t, sizeof t, "BOUNCE: the preset's kick played back as the source, the chain blank: %.0f dB from the "
+                 "preset (%u ms, %u ms)", 10.0 * log10(d / e + 1e-30), no * 1000u / KICK_RATE, nb * 1000u / KICK_RATE);
+        check(d / e < 1e-5, t);
+        /* PITCH +12: twice as fast, so half as long */
+        p.v[KP_SRC_PITCH] = 12;
+        kick_cook(&p, &c);
+        nb = kick_render_one(&c, 0, bnc, KICK_SRC_MAX);
+        snprintf(t, sizeof t, "BOUNCE PITCH +12: %u ms (the bounce %u)", nb * 1000u / KICK_RATE, ns * 1000u / KICK_RATE);
+        check(nb < ns * 6u / 10u, t);
+        kick_set_source(0, 0);
+    }
+
     /* the dice: 300 throws; every kick as loud as a new one (never soft, never silent), its EQs extreme */
     {
         uint32_t seed = 12345u;
