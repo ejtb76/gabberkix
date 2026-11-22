@@ -13,7 +13,8 @@
  *                                                                                              (PUSH) -> OUT
  *   GROUP A -+-> highpass -----------------------------------+
  *            +-> lowpass -> SUB (its envelope, drive, gain) --+-> TOTAL: T.EQ -> CLIP (PUSH) -> OUT
- * then the master: a limiter. The crossover (Linkwitz-Riley, fourth order) sums flat: the sub, made from the kick's
+ * then PERF's SCREAM (a swept mid, as on a console) and ENV (an envelope over the whole kick, in four parts), then
+ * the master: a limiter. The crossover (Linkwitz-Riley, fourth order) sums flat: the sub, made from the kick's
  * own lows, falls exactly into the gap the highpass leaves, and does not go through group A's clipper.
  * Extreme boosts and cuts before a distortion choose what it does; it makes overtones; the next EQ finds the sweet
  * spots among them, and the next distortion presses them together. An EQ alone changes little: EQs in a row are one
@@ -103,7 +104,15 @@ enum {
     KP_T_PUSH = KP_TEQ + KB_N * KICK_TEQ_BANDS,   /* TOTAL: into its clipper, dB */
     KP_T_CLIP,                           /* KCL_* */
     KP_T_OUT,                            /* out of it, dB */
-    KP_COUNT
+    KP_NOISE,                            /* (phase 6) noise in the 909, following its level, %; 0: none */
+    KP_PF_FREQ,                          /* PERF: SCREAM, a narrow boost on the whole kick (a console's): where, Hz */
+    KP_PF_AMOUNT,                        /* how much, dB; 0: none */
+    KP_PF_DRIVE,                         /* both distortions' drive, moved by dB */
+    KP_PF_LENGTH,                        /* the 909's DECAY, moved by % */
+    KP_E_LEVEL,                          /* ENV: the level of part j (attack, body, middle, tail): KP_E_LEVEL + j, dB */
+    KP_E_TIME = KP_E_LEVEL + 4,          /* where part j + 1 starts: KP_E_TIME + j (j 0..2), ms */
+    KP_E_END = KP_E_TIME + 3,
+    KP_COUNT = KP_E_END
 };
 #define KICK_PARAMS_V1 (KP_POST + KB_N * KICK_POST_BANDS)   /* the parameters of the first presets (no punch) */
 
@@ -174,6 +183,12 @@ typedef struct {
     kick_svf_t teq[KICK_TEQ_BANDS];
     uint8_t t_clip;
     float t_push, t_out;
+    /* phase 6 */
+    float noise;                         /* the 909's noise, linear; 0: none */
+    kick_svf_t scream;                   /* PERF's boost before DIST 2 */
+    uint8_t e_on;                        /* ENV: not all at 0 dB */
+    float e_gain[4];                     /* each part's, linear */
+    uint32_t e_at[3];                    /* where parts 1..3 start, samples */
 } kick_coefs_t;
 
 void kick_init(void);
@@ -184,8 +199,8 @@ typedef struct {
     float inc0, inc_sweep;               /* phase step: inc0 + inc_sweep * sweep */
     float phase, sweep, amp, click_env;
     uint32_t hold;
-    float decay_k, sweep_k, click, level;
-    uint32_t noise;
+    float decay_k, sweep_k, click, level, body_noise;
+    uint32_t noise, noise2;
     float fade;                          /* 1, or falling to 0 when a new kick took over */
 } kick_voice_t;
 
@@ -214,6 +229,9 @@ typedef struct {
     float xlp[2][2], xhp[2][2], teq[KICK_TEQ_BANDS][2];   /* the crossover's two stages a side, TOTAL's EQ */
     float s_env;                         /* the sub's envelope */
     uint32_t s_hold;
+    float scream[2];                     /* PERF's SCREAM */
+    uint32_t t;                          /* samples since the kick (ENV) */
+    float e_now;                         /* ENV's gain, gliding */
     uint32_t p_quiet, quiet;             /* samples P.EQ's and group A's output has been silent */
     uint8_t tap;                         /* KT_* */
     float pbuf[256];                     /* the punch's block */

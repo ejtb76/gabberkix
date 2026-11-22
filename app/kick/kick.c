@@ -92,6 +92,19 @@ static const kick_param_info_t INFO[KP_COUNT] = {
     [KP_T_PUSH] = {"T.PUSH", 0, 36, 3, KU_DB, 1, 0},
     [KP_T_CLIP] = {"T.CLIP", 0, KCL_N - 1, KCL_HARD, KU_LIST, 1, CLIP_T},
     [KP_T_OUT] = {"T.OUT", -36, 12, T_OUT, KU_DB, 1, 0},
+    /* phase 6: noise in the 909 (none on a new kick), PERF (neutral), ENV (flat) */
+    [KP_NOISE] = {"NOISE", 0, 100, 0, KU_PCT, 2, 0},
+    [KP_PF_FREQ] = {"SCREAM", 200, 4000, 1000, KU_HZ, 0, 0},
+    [KP_PF_AMOUNT] = {"AMOUNT", 0, 24, 0, KU_DB, 1, 0},
+    [KP_PF_DRIVE] = {"DRIVE", -12, 12, 0, KU_DB, 1, 0},
+    [KP_PF_LENGTH] = {"LENGTH", -50, 50, 0, KU_PCT, 5, 0},
+    [KP_E_LEVEL + 0] = {"ATTACK", -24, 12, 0, KU_DB, 1, 0},
+    [KP_E_LEVEL + 1] = {"BODY", -24, 12, 0, KU_DB, 1, 0},
+    [KP_E_LEVEL + 2] = {"MIDDLE", -24, 12, 0, KU_DB, 1, 0},
+    [KP_E_LEVEL + 3] = {"TAIL", -24, 12, 0, KU_DB, 1, 0},
+    [KP_E_TIME + 0] = {">BODY", 1, 100, 10, KU_MS, 0, 0},
+    [KP_E_TIME + 1] = {">MID", 10, 500, 100, KU_MS, 0, 0},
+    [KP_E_TIME + 2] = {">TAIL", 20, 2000, 300, KU_MS, 0, 0},
 };
 
 int kick_eq_bands(int eq)
@@ -322,7 +335,7 @@ void kick_cook(const kick_params_t *p, kick_coefs_t *c)
     c->sweep_ratio = fm_exp2f((float)v[KP_SWEEP] / 100.0f) - 1.0f;
     c->sweep_k = fm_expf(-1.0f / ((float)v[KP_SWEEP_T] * MS));
     c->hold = (uint32_t)((float)v[KP_HOLD] * MS);
-    c->decay_k = decay_per_sample((float)v[KP_DECAY], 60.0f);
+    c->decay_k = decay_per_sample((float)v[KP_DECAY] * (1.0f + (float)v[KP_PF_LENGTH] * 0.01f), 60.0f);   /* PERF */
     c->click = (float)v[KP_CLICK] * 0.006f;   /* 100 % is a burst at 0.6 */
     c->level = fm_db2lin((float)v[KP_LEVEL]);
     for (b = 0; b < KICK_EQ1_BANDS; b++)
@@ -331,6 +344,19 @@ void kick_cook(const kick_params_t *p, kick_coefs_t *c)
     for (b = 0; b < KICK_EQ2_BANDS; b++)
         cook_band(&c->eq2[b], &v[KP_EQ2 + KB_N * b]);
     cook_dist(&c->d2, &v[KP_D2]);
+    if (v[KP_PF_DRIVE]) {                /* PERF's DRIVE: both distortions pushed or eased */
+        float g = fm_db2lin((float)v[KP_PF_DRIVE]);
+        c->d1.in *= g;
+        c->d2.in *= g;
+    }
+    {                                    /* PERF's SCREAM: a narrow peak (Q 8) on the whole kick, as a console's */
+        int16_t b[KB_N];
+        b[KB_FREQ] = v[KP_PF_FREQ];
+        b[KB_GAIN] = v[KP_PF_AMOUNT];
+        b[KB_Q] = 800;
+        cook_band(&c->scream, b);
+    }
+    c->noise = (float)v[KP_NOISE] * 0.003f;   /* 100 %: noise at 0.3 of the 909's sine */
     for (b = 0; b < KICK_POST_BANDS; b++)
         cook_band(&c->post[b], &v[KP_POST + KB_N * b]);
     c->p_src = 0;                        /* this kick (the app points it at a preset's) */
@@ -364,6 +390,19 @@ void kick_cook(const kick_params_t *p, kick_coefs_t *c)
     c->t_clip = (uint8_t)v[KP_T_CLIP];
     c->t_push = fm_db2lin((float)v[KP_T_PUSH]);
     c->t_out = fm_db2lin((float)v[KP_T_OUT]);
+    {                                    /* ENV: four parts, each from where the one before ends */
+        uint32_t j, at = 0;
+        c->e_on = 0;
+        for (j = 0; j < 4u; j++) {
+            c->e_gain[j] = fm_db2lin((float)v[KP_E_LEVEL + j]);
+            c->e_on |= v[KP_E_LEVEL + j] != 0;
+        }
+        for (j = 0; j < 3u; j++) {
+            uint32_t a = (uint32_t)((float)v[KP_E_TIME + j] * MS);
+            at = a > at ? a : at + 1u;
+            c->e_at[j] = at;
+        }
+    }
 }
 
 void kick_params_upgrade(kick_params_t *p, int from)
@@ -469,6 +508,8 @@ static void voice_start(kick_voice_t *v, const kick_coefs_t *c, int semis)
     v->click = c->click;
     v->level = c->level;
     v->noise = 0x12345678u;              /* the same click every time: a kick is a kick */
+    v->noise2 = 0x9E3779B9u;             /* (and the same body noise) */
+    v->body_noise = c->noise;
     v->fade = 1.0f;
     v->on = 1;
 }
@@ -506,6 +547,10 @@ static void voice_render(kick_voice_t *v, float *out, uint32_t n)
         v->noise = v->noise * 1664525u + 1013904223u;
         nz = (float)(int32_t)v->noise * (1.0f / 2147483648.0f);
         s += nz * v->click_env * v->click;
+        if (v->body_noise > 0.0f) {      /* noise in the body, at its level: grit for the distortions */
+            v->noise2 = v->noise2 * 22695477u + 1u;
+            s += (float)(int32_t)v->noise2 * (1.0f / 2147483648.0f) * v->amp * v->body_noise;
+        }
         v->click_env *= click_k;
         if (v->fade < 1.0f) {
             v->fade -= fade_step;
@@ -647,6 +692,7 @@ static void group_reset(kick_kit_t *k)   /* group A's EQ, the crossover, TOTAL's
         z[i] = 0.0f;
     for (i = 0; i < KICK_TEQ_BANDS; i++)
         k->teq[i][0] = k->teq[i][1] = 0.0f;
+    k->scream[0] = k->scream[1] = 0.0f;
 }
 
 void kick_kit_reset(kick_kit_t *k)
@@ -679,6 +725,8 @@ void kick_kit_trigger(kick_kit_t *k, const kick_coefs_t *c, int semis)
         k->p_quiet = 0;
     }
     k->s_env = 1.0f;                     /* the sub's envelope from the top */
+    k->t = 0;                            /* ENV from the top */
+    k->e_now = c->e_gain[0];
     k->s_hold = c->s_hold;
     k->quiet = 0;
 }
@@ -835,8 +883,19 @@ static void kit_block(kick_kit_t *k, const kick_coefs_t *c, float *out, uint32_t
                     x = soft_clip(x);
                 out[i] = x * c->t_out;
             }
+            if (c->scream.on)            /* PERF's SCREAM: the kick through a swept mid, as on a console */
+                svf_run(&c->scream, k->scream, out, n);
+            /* ENV: each part's level, gliding over a millisecond from one to the next */
+            if (c->e_on)
+                for (i = 0; i < n; i++) {
+                    uint32_t t = k->t + i;
+                    float g = c->e_gain[t < c->e_at[0] ? 0 : t < c->e_at[1] ? 1 : t < c->e_at[2] ? 2 : 3];
+                    k->e_now += (g - k->e_now) * 0.0224f;
+                    out[i] *= k->e_now;
+                }
         }
     }
+    k->t += n;
     if (kick_sounding(&k->mid) || k->gate > 0.0f || k->p_quiet < QUIET_SAMPLES || peak_of(out, n) >= SILENT)
         k->quiet = 0;
     else if ((k->quiet += n) >= QUIET_SAMPLES)
@@ -963,6 +1022,7 @@ int kick_randomize(kick_params_t *p, uint32_t *seed)
         q.v[KP_S_GAIN] = (int16_t)dice_in(seed, -3, 6);      /* stays) */
         q.v[KP_S_HOLD] = (int16_t)dice_in(seed, 0, 100);
         q.v[KP_S_DECAY] = (int16_t)(dice_in(seed, 0, 2) ? dice_in(seed, 15, 150) * 10 : INFO[KP_S_DECAY].max);
+        q.v[KP_NOISE] = (int16_t)(dice_in(seed, 0, 1) ? 0 : dice_in(seed, 1, 20));   /* noise: none one time in two */
         dice_eq(&q, KE_PEQ, 300, 10000, 0, 0, 10000, 10000, seed);
         for (k = 0; k < 3; k++) {              /* DIST2's OUT to a new kick's loudness */
             int out = q.v[KP_D2 + KD_OUT], to;

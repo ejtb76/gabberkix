@@ -31,3 +31,14 @@ T.PUSH	total push
 T.CLIP	total clip
 T.OUT	total out
 OPEN	open
+PERF	performance
+SCREAM	scream
+AMOUNT	amount
+LENGTH	length
+NOISE	noise
+ATTACK	attack
+MIDDLE	middle
+TAIL	tail
+>BODY	body from
+>MID	middle from
+>TAIL	tail from

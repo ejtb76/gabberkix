@@ -17,7 +17,7 @@ Built on [fm1-base](https://github.com/charlesvestal/fm1-base) and felucca-bsp, 
 midbody: 909 -> EQ (4 peaks) -> DIST1 -> EQ2 (4 peaks) -> DIST2 -> POST (2 peaks) --+
 punch:   a kick (this one, or a preset) -> GATE -> P.EQ (4 peaks) -> DRIVE -> LEVEL -+-> GROUP A: EQ -> CLIP -> OUT
 GROUP A -+-> highpass --------------------------------+
-         +-> lowpass -> SUB (envelope, drive, gain) --+-> TOTAL: EQ -> CLIP -> OUT -> limiter
+         +-> lowpass -> SUB (envelope, drive, gain) --+-> TOTAL: EQ -> CLIP -> OUT -> SCREAM -> ENV -> limiter
 ```
 
 The source is a blank 909: a sine whose pitch falls from a sweep to the root (G1, 49 Hz), a short noise click on the
@@ -49,6 +49,13 @@ leaves the EQs more to do.
   S.DRV a soft saturation.
 - **TOTAL**: group A's highs and the sub together: an EQ of four peaks, then a clipper (T.PUSH, T.CLIP HARD, SOFT or
   OFF, T.OUT), where pushing the sub over full scale glues it to the rest.
+- **NOISE** (on the 909 page): noise in the 909, at its level, so it lives in the body and is silent between kicks:
+  grit for the distortions, shaped by the EQs before them. 0 %: none (a new kick's).
+- **PERF**, a page to play on while the kick runs, as on a console: SCREAM sweeps a narrow mid boost (Q 8, 200 Hz–4 kHz)
+  over the whole kick and AMOUNT sets how much (0: none); DRIVE moves both distortions' drive by ±12 dB, LENGTH the
+  909's DECAY by ±50 %. They are saved with the preset.
+- **ENV**: an envelope over the whole kick in four parts (ATTACK, BODY, MIDDLE, TAIL), each its own level (-24 to +12
+  dB), gliding from one to the next; where each starts (>BODY, >MID, >TAIL) on the second row. All at 0 dB: none.
 - **The master**: a peak limiter at -0.3 dBFS, then MASTER's volume.
 
 **The dice** (ARP) draw an extreme curve on both EQs, as a kick's EQ is drawn: cuts deep (15–30 dB) and narrow, boosts
@@ -60,8 +67,9 @@ TUNE, SW.T, HOLD and LEVEL stay, and so does POST). The punch is off one time in
 kick); else it gets a P.GAIN of -12 to +6 dB, a P.HOLD of 0–10 ms, a P.DECAY of 1–200 ms (every length as likely), a
 P.TUNE of ±12 and its own curve on P.EQ (its SRC and P.DRV stay, and so does group A). The sub gets an X.FREQ of
 60–200 Hz, an S.GAIN of -3 to +6 dB, an S.HOLD of 0–100 ms and, two times in three, an S.DECAY of 150–1500 ms (else
-OPEN); TOTAL stays. Then the kick is rendered once, measured after the limiter, and DIST2's OUT set so it is as loud
-as a new kick: never soft, never silent. SEL + ARP takes the last throw back.
+OPEN); TOTAL stays. NOISE is off one time in two, else 1–20 %; PERF and ENV stay. Then the kick is rendered once,
+measured after the limiter, and DIST2's OUT set so it is as loud as a new kick: never soft, never silent. SEL + ARP
+takes the last throw back.
 
 A new kick is a classic gabber kick at once: DIST1 a soft TANH at 12 dB, DIST2 a GABBER at 6 dB with its OUT at -9 dB,
 its own tick on top (SELF, 8 ms, +6 dB), group A pushed 6 dB into a hard clip, its OUT at -6 dB, split at 120 Hz with
@@ -77,7 +85,7 @@ screen are computed from the same coefficients the sound uses (`tools/chain_test
 
 | Control | What it does |
 | --- | --- |
-| **SELECT** | The page: 909, EQ, D1, EQ2, D2, POST, PNCH, P.EQ, GRP.A, SUB, TOTAL, and round again; in the order of the sound, so walking through them builds the kick |
+| **SELECT** | The page: 909, EQ, D1, EQ2, D2, POST, PNCH, P.EQ, GRP.A, SUB, TOTAL, ENV, PERF, and round again; in the order of the sound, so walking through them builds the kick |
 | **HOME** | The 909 page |
 | **EDIT** | The EQ page; again: the next band |
 | **FX** | D1; again: D2, and back |
@@ -85,6 +93,7 @@ screen are computed from the same coefficients the sound uses (`tools/chain_test
 | **SEQ** | GRP.A; again: its next band |
 | **OCT−** | SUB |
 | **OCT+** | TOTAL; again: its next band |
+| **REC** | PERF; again: ENV, and back |
 | **LFO** | The EQ2 page; again: the next band |
 | **GLO** | The POST page; again: the other band |
 | **SEL** held + white key | Load the preset on that key |
@@ -103,23 +112,26 @@ The pages' knobs:
 
 | Page | K1–K4 | SEL held + K1–K4 |
 | --- | --- | --- |
-| **909** | SWEEP (how far above the root the pitch starts, in octaves), SW.T (how fast it falls), HOLD, DECAY (to -60 dB) | TUNE (the root, ±12 semitones from G1), CLICK, LEVEL |
+| **909** | SWEEP (how far above the root the pitch starts, in octaves), SW.T (how fast it falls), HOLD, DECAY (to -60 dB) | TUNE (the root, ±12 semitones from G1), CLICK, LEVEL, NOISE |
 | **EQ**, **EQ2**, **POST**, **P.EQ** | BAND (1–4, 1–4, A–B, 1–4), and its GAIN, Q, FREQ | |
 | **D1**, **D2** | TYPE, DRIVE, BIAS, OUT | MIX |
 | **PNCH** | SRC, P.GAIN, P.HOLD, P.DECAY | P.DRV, P.TUNE |
 | **GRP.A** | BAND (1–4), and its GAIN, Q, FREQ | PUSH, CLIP, A.OUT |
 | **SUB** | X.FREQ, S.GAIN, S.HOLD, S.DECAY | S.DRV |
 | **TOTAL** | BAND (1–4), and its GAIN, Q, FREQ | T.PUSH, T.CLIP, T.OUT |
+| **ENV** | ATTACK, BODY, MIDDLE, TAIL (dB) | >BODY, >MID, >TAIL (ms) |
+| **PERF** | SCREAM, AMOUNT, DRIVE, LENGTH | |
 
 Along the top the tabs: the pages of the layer shown (the midbody's six, the punch's two), the one shown lit, and the
-other layers by name (MID, PNCH, A, SUB, TOT). Each page has its own colour (909 red, EQ cyan, D1 magenta, EQ2 blue,
-D2 amber, POST green, PNCH yellow, P.EQ teal, GRP.A pink, SUB violet, TOTAL white), so a glance tells where you are.
-Under the knobs the screen shows the kick's first second (909), zoomed so its body fills the height (the zoom at the
-right, X2, X3: the tick at the start may run into the edge); on an EQ page its bands as an EQ plugin draws them (each
-a numbered dot with its own faint curve, the band the knobs turn lit, their sum the bright line) over the spectrum
-after the next distortion, where its sweet spots show (on P.EQ the punch's, on GRP.A the spectrum after the clipper);
-on a distortion page the spectrum after it; on PNCH the first 50 ms, the whole kick faint and the punch bright over
-it; on SUB the crossover's two halves (the sub's with its gain) over group A's spectrum.
+other layers by name (MID, PN, A, SUB, TOT, PERF). Each page has its own colour (909 red, EQ cyan, D1 magenta, EQ2
+blue, D2 amber, POST green, PNCH yellow, P.EQ teal, GRP.A pink, SUB violet, TOTAL white, ENV lime, PERF orange), so a
+glance tells where you are. Under the knobs the screen shows the kick's first second (909), zoomed so its body fills
+the height (the zoom at the right, X2, X3: the tick at the start may run into the edge); on an EQ page its bands as an
+EQ plugin draws them (each a numbered dot with its own faint curve, the band the knobs turn lit, their sum the bright
+line) over the spectrum after the next distortion, where its sweet spots show (on P.EQ the punch's, on GRP.A the
+spectrum after the clipper); on a distortion page the spectrum after it; on PNCH the first 50 ms, the whole kick faint
+and the punch bright over it; on SUB the crossover's two halves (the sub's with its gain) over group A's spectrum; on
+ENV the kick with ENV's level over it; on PERF the whole kick's spectrum, a line where SCREAM is.
 
 ## Presets
 
@@ -127,9 +139,9 @@ Sixteen kicks, one on each white key. Hold **SAVE** and press a white key to sav
 press one to load it. While SEL or SAVE is held, the white keys that hold a preset light dim, and the one loaded or
 saved last lights bright. The header shows it (P3), with a star once the kick has changed since. The presets are kept
 in the FM-1's flash, outside the firmware: they survive a restart and an update. A preset is the parameters alone (no
-audio); parameters are only ever added at the end of the list, so a preset saved now still loads in a later version.
-A preset saved before the punch loads with no punch and group A a straight wire, one saved before the sub with no split
-and TOTAL a straight wire: each sounds as it did.
+audio); parameters are only ever added at the end of the list, so a preset saved now still loads in a later version. A
+preset saved before the punch loads with no punch and group A a straight wire, one saved before the sub with no split
+and TOTAL a straight wire, one saved before NOISE, PERF and ENV with all three neutral: each sounds as it did.
 
 ## Building and testing
 

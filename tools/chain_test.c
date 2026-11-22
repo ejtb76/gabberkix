@@ -463,6 +463,73 @@ int main(void)
         check(early > 0.0 && late < early * 1e-4, t);
     }
 
+    /* phase 6: noise, PERF, ENV */
+    {
+        static float ya[N], yb[N];
+        double d = 0.0, ea = 0.0, eb = 0.0, la = 0.0, lb = 0.0;
+        uint32_t na, nb, j;
+        char t[200];
+        /* a preset from phase 4 (none of these parameters), upgraded: exactly as it sounded */
+        kick_params_default(&p);
+        kick_cook(&p, &c);
+        na = kick_render_one(&c, 0, ya, N);
+        kick_params_upgrade(&p, KP_NOISE);
+        kick_cook(&p, &c);
+        nb = kick_render_one(&c, 0, yb, N);
+        for (j = 0; j < na && j < nb; j++)
+            if (fabs(ya[j] - yb[j]) > d)
+                d = fabs(ya[j] - yb[j]);
+        check(na == nb && d == 0.0, "a preset from before NOISE, PERF and ENV sounds exactly as it did");
+        /* NOISE: grit in the body (the clean 909, so it shows): the high band louder */
+        neutral(&p);
+        kick_cook(&p, &c);
+        na = kick_render_one(&c, 0, ya, N);
+        p.v[KP_NOISE] = 30;
+        kick_cook(&p, &c);
+        nb = kick_render_one(&c, 0, yb, N);
+        snprintf(t, sizeof t, "NOISE 30 %%: %.0f dB more at 5 kHz in the body", dft_db(yb, 8820u, 5000.0) - dft_db(ya, 8820u,
+                 5000.0));
+        check(dft_db(yb, 8820u, 5000.0) - dft_db(ya, 8820u, 5000.0) > 12.0, t);
+        /* PERF's SCREAM: 18 dB at 1.5 kHz on the whole kick */
+        kick_params_default(&p);
+        mid_only(&p);
+        kick_cook(&p, &c);
+        na = kick_render_one(&c, 0, ya, N);
+        p.v[KP_PF_FREQ] = 1500;
+        p.v[KP_PF_AMOUNT] = 18;
+        kick_cook(&p, &c);
+        nb = kick_render_one(&c, 0, yb, N);
+        snprintf(t, sizeof t, "PERF SCREAM 18 dB at 1.5 kHz: %+.1f dB there",
+                 dft_db(yb, 8820u, 1500.0) - dft_db(ya, 8820u, 1500.0));
+        check(fabs(dft_db(yb, 8820u, 1500.0) - dft_db(ya, 8820u, 1500.0) - 18.0) < 1.0, t);
+        /* PERF's LENGTH: +50 % sounds longer */
+        p.v[KP_PF_AMOUNT] = 0;
+        p.v[KP_PF_LENGTH] = 50;
+        kick_cook(&p, &c);
+        nb = kick_render_one(&c, 0, yb, N);
+        snprintf(t, sizeof t, "PERF LENGTH +50 %%: the kick %u ms long, was %u", nb * 1000u / KICK_RATE,
+                 na * 1000u / KICK_RATE);
+        check(nb > na + na / 5u, t);
+        /* ENV: the tail (from 300 ms) at -24 dB; the attack and body as they were */
+        kick_params_default(&p);
+        kick_cook(&p, &c);
+        na = kick_render_one(&c, 0, ya, N);
+        p.v[KP_E_LEVEL + 3] = -24;
+        kick_cook(&p, &c);
+        nb = kick_render_one(&c, 0, yb, N);
+        for (j = 0; j < 8820u; j++) {
+            ea += (double)ya[j] * ya[j];
+            eb += (double)yb[j] * yb[j];
+        }
+        for (j = 15435u; j < 22050u; j++) {   /* 350 .. 500 ms */
+            la += (double)ya[j] * ya[j];
+            lb += (double)yb[j] * yb[j];
+        }
+        snprintf(t, sizeof t, "ENV, the tail at -24 dB: %.1f dB there, %.2f dB in the first 200 ms",
+                 10.0 * log10(lb / la), 10.0 * log10(eb / ea));
+        check(fabs(10.0 * log10(lb / la) + 24.0) < 1.0 && fabs(10.0 * log10(eb / ea)) < 0.1, t);
+    }
+
     /* the dice: 300 throws; every kick as loud as a new one (never soft, never silent), its EQs extreme */
     {
         uint32_t seed = 12345u;

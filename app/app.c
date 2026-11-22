@@ -13,6 +13,7 @@
  *   FX           D1 (again: D2, and back)                            GLO  POST (again: the other band)
  *   ENV          PNCH (again: P.EQ, and back)                        SEQ  GRP.A (again: its next band)
  *   OCT-         SUB                                                 OCT+ TOTAL (again: its next band)
+ *   REC          PERF (again: ENV, and back)
  *   K1..K4       the page's first four parameters; with SEL held, the next four
  *   SEL + white key    load the preset on that key; SAVE + white key: save the kick there. Held, SEL and
  *                SAVE light the keys that hold a preset half, the one loaded or saved last bright
@@ -40,7 +41,7 @@
  * that band's gain, Q and frequency. Under them a picture: the kick's first second (909); an EQ's bands (each a dot,
  * its own curve faint, the sum bright) over the spectrum after the next distortion, where its sweet spots show; or
  * the spectrum after a distortion. */
-enum { V_WAVE, V_CURVE, V_SPEC, V_PUNCH, V_XOVER };   /* V_PUNCH: the first 50 ms, the punch over the whole kick;
+enum { V_WAVE, V_CURVE, V_SPEC, V_PUNCH, V_XOVER, V_ENV };   /* V_ENV: the kick, ENV's four parts over it */   /* V_PUNCH: the first 50 ms, the punch over the whole kick;
                                                         V_XOVER: the crossover's two halves over group A's spectrum */
 enum { PS_NONE = -1, PS_BAND = -2, PS_FREQ = -3, PS_GAIN = -4, PS_Q = -5 };
 typedef struct {
@@ -55,13 +56,14 @@ typedef struct {
 #define COLOURS(r, g, b, r2, g2, b2) RGB(r, g, b), RGB(r2, g2, b2)
 #define EQ_KNOBS {PS_BAND, PS_GAIN, PS_Q, PS_FREQ, -1, -1, -1, -1}
 #define DIST_KNOBS(d) {(d) + KD_TYPE, (d) + KD_DRIVE, (d) + KD_BIAS, (d) + KD_OUT, (d) + KD_MIX, -1, -1, -1}
-enum { PG_909, PG_EQ, PG_D1, PG_EQ2, PG_D2, PG_POST, PG_PUNCH, PG_PEQ, PG_A, PG_SUB, PG_TOT };
+enum { PG_909, PG_EQ, PG_D1, PG_EQ2, PG_D2, PG_POST, PG_PUNCH, PG_PEQ, PG_A, PG_SUB, PG_TOT, PG_ENV, PG_PERF };
 /* the layers, for the tab bar: the midbody's pages, the punch's, group A, the sub, TOTAL */
-enum { L_MID, L_PUNCH, L_A, L_SUB, L_TOT, L_N };
-static const uint8_t PAGE_LAYER[] = {L_MID, L_MID, L_MID, L_MID, L_MID, L_MID, L_PUNCH, L_PUNCH, L_A, L_SUB, L_TOT};
-static const char *const LAYER_NAME[L_N] = {"MID", "PNCH", "A", "SUB", "TOT"};
+enum { L_MID, L_PUNCH, L_A, L_SUB, L_TOT, L_PERF, L_N };
+static const uint8_t PAGE_LAYER[] = {L_MID, L_MID, L_MID, L_MID, L_MID, L_MID, L_PUNCH, L_PUNCH, L_A, L_SUB, L_TOT,
+                                     L_TOT, L_PERF};
+static const char *const LAYER_NAME[L_N] = {"MID", "PN", "A", "SUB", "TOT", "PERF"};   /* (short: all on one line) */
 static const page_t PAGES[] = {
-    [PG_909] = {"909", {KP_SWEEP, KP_SWEEP_T, KP_HOLD, KP_DECAY, KP_TUNE, KP_CLICK, KP_LEVEL, -1}, V_WAVE, -1, KT_ALL,
+    [PG_909] = {"909", {KP_SWEEP, KP_SWEEP_T, KP_HOLD, KP_DECAY, KP_TUNE, KP_CLICK, KP_LEVEL, KP_NOISE}, V_WAVE, -1, KT_ALL,
                 B_HOME, COLOURS(232, 76, 60, 255, 132, 112)},
     [PG_EQ] = {"EQ", EQ_KNOBS, V_CURVE, KE_EQ1, KT_D1, B_EDIT, COLOURS(60, 180, 235, 150, 225, 255)},
     [PG_D1] = {"D1", DIST_KNOBS(KP_D1), V_SPEC, -1, KT_D1, B_FX, COLOURS(214, 70, 200, 255, 140, 240)},
@@ -77,6 +79,10 @@ static const page_t PAGES[] = {
                 B_OCTDN, COLOURS(150, 90, 230, 200, 165, 255)},
     [PG_TOT] = {"TOTAL", {PS_BAND, PS_GAIN, PS_Q, PS_FREQ, KP_T_PUSH, KP_T_CLIP, KP_T_OUT, -1}, V_CURVE, KE_TEQ, KT_ALL,
                 B_OCTUP, COLOURS(235, 235, 235, 255, 255, 255)},
+    [PG_ENV] = {"ENV", {KP_E_LEVEL, KP_E_LEVEL + 1, KP_E_LEVEL + 2, KP_E_LEVEL + 3, KP_E_TIME, KP_E_TIME + 1,
+                KP_E_TIME + 2, -1}, V_ENV, -1, KT_ALL, B_REC, COLOURS(160, 220, 40, 205, 250, 120)},
+    [PG_PERF] = {"PERF", {KP_PF_FREQ, KP_PF_AMOUNT, KP_PF_DRIVE, KP_PF_LENGTH, -1, -1, -1, -1}, V_SPEC, -1, KT_ALL, B_REC,
+                 COLOURS(255, 70, 20, 255, 150, 100)},
 };
 #define NPAGES ((int)(sizeof PAGES / sizeof PAGES[0]))
 
@@ -546,6 +552,8 @@ static void input(void)
                 p = ui.page == PG_D1 ? PG_D2 : PG_D1;
             else if (k == B_ENV)                 /* PNCH; again: P.EQ, and back */
                 p = ui.page == PG_PUNCH ? PG_PEQ : PG_PUNCH;
+            else if (k == B_REC)                 /* PERF; again: ENV, and back */
+                p = ui.page == PG_PERF ? PG_ENV : PG_PERF;
             else if (k == B_OCTDN)
                 p = PG_SUB;
             else if (k == B_EDIT || k == B_LFO || k == B_GLO || k == B_SEQ || k == B_OCTUP) {   /* an EQ page; */
@@ -819,7 +827,7 @@ static void draw(void)
     cv_rect(0, 0, 240, 1, C_LINE);
     {   /* the tabs: the pages of this page's layer, this one lit and underlined, each in its colour; the other
            layers by their name */
-        int32_t x = 6;
+        int32_t x = 4;
         int k, l = -1, here = PAGE_LAYER[ui.page];
         for (k = 0; k < NPAGES; k++) {
             int lay = PAGE_LAYER[k], first = lay != l;
@@ -828,14 +836,14 @@ static void draw(void)
             if (lay != here) {
                 if (first) {
                     x1 = cv_text(x, 4, &FONT_XS, LAYER_NAME[lay], C_DIM);
-                    cv_rect(x - 1, 15, x1 - x + 2, 1, PAGES[k].amb);
-                    x = x1 + 6;
+                    cv_rect(x - 1, 16, x1 - x + 2, 1, PAGES[k].amb);
+                    x = x1 + 4;
                 }
                 continue;
             }
             x1 = cv_text(x, 4, &FONT_XS, PAGES[k].name, k == ui.page ? PAGES[k].hi : C_DIM);
-            cv_rect(x - 1, 15, x1 - x + 2, k == ui.page ? 2 : 1, k == ui.page ? PAGES[k].hi : PAGES[k].amb);
-            x = x1 + 6;
+            cv_rect(x - 1, 16, x1 - x + 2, k == ui.page ? 2 : 1, k == ui.page ? PAGES[k].hi : PAGES[k].amb);
+            x = x1 + 4;
         }
     }
     for (i = 0; i < 8u; i++) {
@@ -879,6 +887,8 @@ static void draw(void)
     case V_SPEC:
         freq_grid();
         spec_draw(C_HI);
+        if (ui.page == PG_PERF && params.v[KP_PF_AMOUNT])   /* where SCREAM is */
+            cv_rect(hz_x((float)params.v[KP_PF_FREQ]), 12, 1, WAVE_H, C_AMB);
         break;
     case V_PUNCH:                        /* the first 50 ms: the whole kick faint, the punch bright over it */
         for (i = 1; i < 10u; i++)                /* 5 ms marks */
@@ -889,6 +899,27 @@ static void draw(void)
         for (i = 0; i < 240u; i++)
             if (ui.pwave_lo[i] != ui.pwave_hi[i] || ui.pwave_hi[i] != WAVE_H / 2 - 1)
                 cv_rect((int32_t)i, 12 + ui.pwave_hi[i], 1, ui.pwave_lo[i] - ui.pwave_hi[i] + 1, C_HI);
+        break;
+    case V_ENV:                          /* the kick as heard (ENV on it), faint; ENV's level, +12 .. -24 dB, over it */
+        for (i = 1; i < 4u; i++)
+            cv_rect((int32_t)i * 60, 12, 1, WAVE_H, C_LINE);
+        cv_rect(0, 12 + WAVE_H / 2 - 1, 240, 1, C_LINE);
+        for (i = 0; i < 240u; i++)
+            cv_rect((int32_t)i, 12 + ui.wave_hi[i], 1, ui.wave_lo[i] - ui.wave_hi[i] + 1, C_DIM);
+        {
+            int32_t py = -1, x;
+            for (x = 0; x < 240; x++) {  /* a column a 1/240 s */
+                int ms = x * 1000 / 240, part = 0, y;
+                while (part < 3 && ms >= params.v[KP_E_TIME + part])
+                    part++;
+                y = (int)((12 - params.v[KP_E_LEVEL + part]) * (WAVE_H - 1) / 36);
+                if (py >= 0 && py != y)
+                    cv_rect(x, 12 + (py < y ? py : y), 1, (py < y ? y - py : py - y) + 1, C_HI);
+                cv_rect(x, 12 + y, 1, 2, C_HI);
+                py = y;
+            }
+            cv_rect(0, 12 + 12 * (WAVE_H - 1) / 36, 240, 1, C_DIM);   /* 0 dB */
+        }
         break;
     default:
         for (i = 1; i < 4u; i++)                 /* 250 ms marks */
