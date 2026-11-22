@@ -305,7 +305,8 @@ int main(void)
     /* the dice: 300 throws; every kick as loud as a new one (never soft, never silent), its EQs extreme */
     {
         uint32_t seed = 12345u;
-        int k, soft = 0, loud = 0, tame = 0, throws = 0, most = 0;
+        int k, soft = 0, loud = 0, tame = 0, throws = 0, most = 0, shorter = 0;
+        long decay = 0;
         float lo = 0.0f, hi = -120.0f;
         char t[256];
         for (k = 0; k < 300; k++) {
@@ -322,6 +323,8 @@ int main(void)
                 lo = db;
             if (db > hi)
                 hi = db;
+            decay += p.v[KP_DECAY];
+            shorter += p.v[KP_DECAY] < 550;
             if (db < -14.0f)
                 soft++;
             if (db > -8.0f)
@@ -337,6 +340,9 @@ int main(void)
                  "over -8 (%d, %d), every band 9 dB or more and the 909 in its ranges (%d not); %.2f throws a kick, %d at most",
                  lo, hi, soft, loud, tame, throws / 300.0, most);
         check(!soft && !loud && !tame, t);
+        snprintf(t, sizeof t, "the dice's DECAY, 200..900 ms evenly: %ld ms on average (550), %d of 300 under 550 ms",
+                 decay / 300, shorter);
+        check(decay / 300 > 520 && decay / 300 < 580 && shorter > 125 && shorter < 175, t);
     }
     if (fails)
         printf("%d failed\n", fails);
