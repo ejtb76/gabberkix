@@ -214,13 +214,13 @@ static volatile uint16_t clock_bpm_x10;         /* tick: its tempo as the loop f
 static uint32_t pulse_n;                        /* audio interrupt: pulses since the last beat */
 static uint8_t beat_first;                      /* the next pulse is beat 1 */
 static uint32_t int_acc;                        /* ours: frames x BPM x 10 x 24 into the pulse */
-static volatile uint32_t int_hold10;            /* ours plays on at an outside clock's tempo (BPM x 10; 0: at tempo) .. */
+static volatile uint32_t int_hold10;            /* ours plays on at an outside clock's tempo (BPM x 10; 0: tempo) .. */
 static int32_t int_hold_bpm;                    /* .. until the tempo moves from this, or PLAY / Stop / a Start */
 static uint32_t ext_k;                          /* outside: the next pulse to play, counted from the Start's first */
 static uint8_t int_run, seen_start, was_state;  /* ours runs (and sends); the last Start seen; the loop's last state */
 static uint8_t ext_ran;                         /* the outside clock has run since its Start: only then does ours play
                                                   * on when it goes */
-static volatile int8_t xpose;                   /* ALGO: PLAY and the keys moved by this, semitones (not MIDI's notes) */
+static volatile int8_t xpose;                   /* ALGO: PLAY and the keys moved by this semitones; not MIDI's notes */
 
 unsigned gk_tempo_x10(void) { return (unsigned)tempo * 10u; }
 
@@ -251,6 +251,7 @@ static void on_pulse(int sound)                 /* audio interrupt: a pulse; a k
 static float mono[APP_BLOCK];
 static float gain_now;                   /* glides to MASTER: no step at a block's edge */
 static float lim_env;                    /* the master limiter's */
+static volatile float meter_peak;        /* the output's peak since the screen read it (the meter) */
 
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
@@ -368,6 +369,13 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         }
     }
     kick_master(&lim_env, mono, n);      /* the master: a limiter at -0.3 dBFS, then MASTER's volume */
+    {                                    /* the meter's peak, since the screen last read it */
+        float pk = meter_peak;
+        for (i = 0; i < n; i++)
+            if (fm_fabsf(mono[i]) > pk)
+                pk = fm_fabsf(mono[i]);
+        meter_peak = pk;
+    }
     for (i = 0; i < n; i++) {
         float s = mono[i];
         gain_now += (gain - gain_now) * 0.004f;
@@ -452,6 +460,12 @@ static struct {
     float spec[SPEC_BINS];               /* the kick's spectrum, dB under its loudest bin */
     int band[KE_N];                      /* the band K2..K4 turn on each EQ page */
     uint8_t link, link_row;              /* the connections page is up; its cursor */
+    uint32_t kick_at;                    /* the last kick heard (its flash, the playhead, the lights) */
+    uint8_t kicked, flash_drawn;         /* one has been; the header last drawn in a flash */
+    uint32_t lower_at;                   /* the picture last drawn (the playhead: about 30 times a second) */
+    float meter_db;                      /* the meter's level, falling */
+    uint32_t meter_at;
+    int32_t meter_w;
     uint8_t save_pending;                /* SAVE pressed with no key yet: on its release, the page's action */
     uint32_t link_sig, link_ms;          /* what the page showed, and when (it is drawn again on a change) */
     uint32_t shown_kicks;
@@ -797,7 +811,7 @@ static void link_draw(void)                      /* the panel under the header: 
     cv_text(6, 4, &FONT_XS, "CONNECTIONS", C_HI);
     if (plat_ble_connected())
         cv_text(234 - text_w(&FONT_XS, "COMPUTER: BT"), 4, &FONT_XS, "COMPUTER: BT", C_GRAY);
-    first = ui.link_row < rows ? (int)ui.link_row - 1 : rows - 3;   /* three device rows at most, the cursor's in view */
+    first = ui.link_row < rows ? (int)ui.link_row - 1 : rows - 3;   /* three device rows at most, the cursor's seen */
     first = first > rows - 3 ? rows - 3 : first;
     first = first < 0 ? 0 : first;
     if (btdev_busy()) {
@@ -847,7 +861,9 @@ static void link_poll(void)                      /* every frame: the scan, what 
     switch (plat_usb_host_msg()) {
     case USBH_MSG_ON: app_say("USB", "HOST"); break;
     case USBH_MSG_OFF: app_say("USB", "DEVICE"); break;
-    case USBH_MSG_MIDI: app_say("USB HOST TO", plat_usb_host_name()[0] ? upper(plat_usb_host_name()) : "A DEVICE"); break;
+    case USBH_MSG_MIDI:
+        app_say("USB HOST TO", plat_usb_host_name()[0] ? upper(plat_usb_host_name()) : "A DEVICE");
+        break;
     case USBH_MSG_NOMIDI: app_say("USB", "NOT A MIDI DEVICE"); break;
     case USBH_MSG_LOW: app_say("USB", "NEEDS POWER"); break;
     case USBH_MSG_LOST: app_say("USB", "DEVICE LOST"); break;
@@ -1020,8 +1036,11 @@ static void input(void)
     ui.keys = keys;
     ui.btn = btn;
     {
-        uint32_t lit = (playing ? 1u << B_PLAY : 0u) | (btn & (1u << B_SEL | 1u << B_SAVE)) |
+        uint32_t now_l = plat_ms(), blink = ui.kicked && now_l - ui.kick_at < 90u;   /* a kick: 90 ms lit */
+        uint32_t lit = (playing && blink ? 1u << B_PLAY : 0u) | (btn & (1u << B_SEL | 1u << B_SAVE)) |
                        1u << PAGES[ui.page].button;
+        if (blink)                       /* the key PLAY's kick is on (the middle G, transposed) */
+            keys |= 1u << (14 + xpose);
         if (btn & (1u << B_SEL | 1u << B_SAVE)) {   /* SEL or SAVE held: the presets on the white keys */
             uint32_t dim = 0, bright = 0;
             int s2;
@@ -1230,16 +1249,39 @@ static void bands_draw(int what, int sel)
     }
 }
 
-static void draw(void)
+/* ---- the screen, in three bands (and the meter): the header (it flashes at each kick), the knobs (or the
+ * connections page), the picture below; each drawn alone when only it changes, so a flash, the playhead and the meter
+ * cost only their own rows */
+#define FLASH_MS 150u                    /* the header's flash at a kick, fading out */
+#define PLAYHEAD_MS 1000u                /* the playhead runs through the picture's first second */
+static uint16_t mix565(uint16_t a, uint16_t b, float f)   /* a to b by f (0..1) */
+{
+    int32_t ra = a >> 11, ga = (a >> 5) & 63, ba = a & 31, rb = b >> 11, gb = (b >> 5) & 63, bb = b & 31;
+    int32_t r = ra + (int32_t)((float)(rb - ra) * f), g = ga + (int32_t)((float)(gb - ga) * f);
+    int32_t bl = ba + (int32_t)((float)(bb - ba) * f);
+    return (uint16_t)(r << 11 | g << 5 | bl);
+}
+static uint16_t flash_bg(uint32_t now)   /* the header's ground: the page's colour at a kick, fading to black */
+{
+    uint32_t dt = now - ui.kick_at;
+    if (!ui.kicked || dt >= FLASH_MS)
+        return C_BLACK;
+    return mix565(C_BLACK, PAGES[ui.page].hi, 0.45f * (float)(FLASH_MS - dt) / (float)FLASH_MS);
+}
+static void playhead_draw(uint32_t now)  /* the 909 and ENV pictures: a line where the kick is, as it plays */
+{
+    uint32_t dt = now - ui.kick_at;
+    if (ui.kicked && dt < PLAYHEAD_MS)
+        cv_rect((int32_t)(dt * 240u / PLAYHEAD_MS), 12, 2, WAVE_H, C_WHITE);
+}
+
+static void draw_header(uint32_t now)
 {
     char t[24];
-    uint32_t i, now = plat_ms();
-    int row = (ui.btn >> B_SEL) & 1u;
     const page_t *pg = &PAGES[ui.page];
-    C_AMB = pg->amb;                     /* the page's colours */
-    C_HI = pg->hi;
+    (void)pg;
     /* the header: the name, the tempo and a light for each kick; or a message for a moment */
-    cv_begin(240, 30, C_BLACK);
+    cv_begin(240, 30, flash_bg(now));
     if (now < ui.msg_until) {
         int32_t x = cv_text(8, 5, &FONT_B, ui.msg[0], C_WHITE);
         cv_text(x + 8, 5, &FONT_B, ui.msg[1], C_HI);
@@ -1270,6 +1312,13 @@ static void draw(void)
         }
     }
     cv_blit(0, 0);
+}
+
+static void draw_panel(uint32_t now)
+{
+    char t[24];
+    uint32_t i;
+    int row = (ui.btn >> B_SEL) & 1u;
     /* the page and its parameters: two rows of four, the row the knobs turn lit (or the connections page) */
     if (ui.link)
         link_draw();
@@ -1321,8 +1370,17 @@ static void draw(void)
     }
     cv_blit(0, 30);
     }
+}
+
+static void draw_lower(uint32_t now)
+{
+    char t[24];
+    uint32_t i;
+    int row = (ui.btn >> B_SEL) & 1u;
+    const page_t *pg = &PAGES[ui.page];
+    (void)row;
     /* the kick (its first second, its spectrum) or the filters' curve; and its pitch */
-    cv_begin(240, WAVE_H + 40, C_BLACK);
+    cv_begin(240, WAVE_H + 37, C_BLACK);   /* (the meter under it: its own 3 rows) */
     cv_rect(0, 0, 240, 1, C_LINE);
     switch (pg->view) {
     case V_CURVE:                        /* the spectrum after the next distortion, faint; the bands over it */
@@ -1386,6 +1444,7 @@ static void draw(void)
         cv_rect(0, 12 + WAVE_H / 2 - 1, 240, 1, C_LINE);
         for (i = 0; i < 240u; i++)
             cv_rect((int32_t)i, 12 + ui.wave_hi[i], 1, ui.wave_lo[i] - ui.wave_hi[i] + 1, C_DIM);
+        playhead_draw(now);
         {
             const kick_coefs_t *c = &coefs[coefs_cur];
             int32_t py = -1, x;
@@ -1411,6 +1470,7 @@ static void draw(void)
         cv_rect(0, 12 + WAVE_H / 2 - 1, 240, 1, C_LINE);
         for (i = 0; i < 240u; i++)
             cv_rect((int32_t)i, 12 + ui.wave_hi[i], 1, ui.wave_lo[i] - ui.wave_hi[i] + 1, C_HI);
+        playhead_draw(now);
         if (ui.zoom10 > 10u) {                   /* the zoom: "X3", "X1.5" */
             t[0] = 'X';
             t[1] = (char)('0' + ui.zoom10 / 10u);
@@ -1439,7 +1499,41 @@ static void draw(void)
         note_text(last_semis, t);
         cv_text(232 - text_w(&FONT_XS, t), WAVE_H + 18, &FONT_XS, t, C_HI);
     }
-    cv_blit(0, 120);
+    cv_blit(0, 120);}
+
+/* the meter: the output's level (after the limiter), a bar along the bottom, -48 .. 0 dBFS; it falls 30 dB a second */
+static void draw_meter(int32_t w)
+{
+    cv_begin(240, 3, C_BLACK);
+    if (w > 0)
+        cv_rect(0, 0, w, 3, PAGES[ui.page].hi);
+    cv_blit(0, 237);
+    ui.meter_w = w;
+}
+static int32_t meter_width(uint32_t now)
+{
+    float pk = meter_peak, db;
+    meter_peak = 0.0f;
+    db = pk > 1e-6f ? 6.0206f * fm_log2f(pk) : -120.0f;   /* 20 log10 = 6.02 log2 */
+    ui.meter_db -= 0.03f * (float)(now - ui.meter_at);
+    ui.meter_at = now;
+    if (db > ui.meter_db)
+        ui.meter_db = db;
+    if (ui.meter_db < -48.0f)
+        ui.meter_db = -48.0f;
+    return (int32_t)((ui.meter_db + 48.0f) * (240.0f / 48.0f));
+}
+
+static void draw(void)
+{
+    uint32_t now = plat_ms();
+    const page_t *pg = &PAGES[ui.page];
+    C_AMB = pg->amb;                     /* the page's colours */
+    C_HI = pg->hi;
+    draw_header(now);
+    draw_panel(now);
+    draw_lower(now);
+    draw_meter(ui.meter_w);
 }
 
 /* the splash: the logo (assets/splash.png, 240 x 240, made app/splash.inc by tools/make_splash.py: a palette of 16
@@ -1540,13 +1634,36 @@ void app_frame(void)
         ui.focus = -1;
         ui.redraw = 1;
     }
-    if (kicks != ui.shown_kicks) {
+    if (kicks != ui.shown_kicks) {       /* a kick: the flash, the playhead, the lights from now */
         ui.shown_kicks = kicks;
-        ui.redraw = 1;
+        ui.kick_at = now;
+        ui.kicked = 1;
     }
     if (ui.redraw) {
         ui.redraw = 0;
         draw();
+        ui.flash_drawn = now - ui.kick_at < FLASH_MS;
+        ui.lower_at = now;
+    } else {
+        const page_t *pg = &PAGES[ui.page];
+        int flash = ui.kicked && now - ui.kick_at < FLASH_MS;
+        int32_t w = meter_width(now);
+        C_AMB = pg->amb;
+        C_HI = pg->hi;
+        if (flash || ui.flash_drawn) {   /* the header while it flashes, and once more after */
+            draw_header(now);
+            ui.flash_drawn = (uint8_t)flash;
+        }
+        if ((pg->view == V_WAVE || pg->view == V_ENV) && !ui.link && ui.kicked &&
+            now - ui.kick_at < PLAYHEAD_MS + 60u && now - ui.lower_at >= 33u) {   /* the playhead, 30 a second */
+            draw_lower(now);
+            ui.lower_at = now;
+        } else if (now - ui.kick_at < 60u && now - ui.lower_at >= 33u) {   /* (the last kick's pitch, below) */
+            draw_lower(now);
+            ui.lower_at = now;
+        }
+        if (w != ui.meter_w)
+            draw_meter(w);
     }
 }
 
