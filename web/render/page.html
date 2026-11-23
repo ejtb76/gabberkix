@@ -10,41 +10,48 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{NAME}} · Render presets</title>
 <style>
-:root { --ground: #0d0d0f; --card: #17171b; --rule: #2c2c33; --ink: #f1efea; --muted: #a09d97; --accent: #e84c3c;
-        --accent-ink: #ff7a6b; --on-accent: #1a0806; --dim: #55545a; color-scheme: dark; }
+:root { --ground: #05080f; --card: #0b1322; --rule: #1b2d4a; --ink: #eef2f8; --muted: #9aa6b8; --accent: #e84c3c;
+        --accent-ink: #ff7a6b; --on-accent: #1a0806; --blue: #0074ff; --blue-ink: #5aa2ff; --navy: #031e3a;
+        color-scheme: dark; }   /* the splash's: the name red, the skull blue on navy */
 * { box-sizing: border-box; }
-body { background: var(--ground); color: var(--ink); margin: 0; padding: 28px 16px 64px;
+body { background: radial-gradient(ellipse 90% 520px at 50% -120px, #0a3a78 0%, var(--navy) 45%, var(--ground) 100%) no-repeat,
+       var(--ground); color: var(--ink); margin: 0; padding: 28px 16px 64px; min-height: 100vh;
        font: 400 16px/1.5 system-ui, "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
 main { max-width: 980px; margin: 0 auto; }
 h1 { font-size: 2rem; line-height: 1.1; margin: 0 0 .3rem; letter-spacing: .02em; }
-h1 span { color: var(--accent); }
+h1 span { color: var(--accent); text-shadow: 0 0 18px rgba(232, 76, 60, .45); }
+h1 { color: var(--blue-ink); }
 .lede { color: var(--muted); margin: 0 0 1.4rem; max-width: 60ch; }
-.bar { display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: center; background: var(--card);
+.bar { box-shadow: inset 0 1px 0 rgba(0, 116, 255, .12); display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: center; background: var(--card);
        border: 1px solid var(--rule); border-radius: 12px; padding: .9rem 1rem; margin: 0 0 1rem; }
 .bar .grow { flex: 1; }
 button, label.pick, select { font: 600 .95rem system-ui, sans-serif; border-radius: 999px; padding: .45em 1.15em;
        cursor: pointer; border: 1px solid var(--rule); background: var(--ground); color: var(--ink); }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 button:disabled { opacity: .45; cursor: default; }
-button:focus-visible, select:focus-visible, label.pick:focus-within { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+button:focus-visible, select:focus-visible, label.pick:focus-within { outline: 2px solid var(--blue-ink); outline-offset: 2px; }
+button:not(.primary):not(:disabled):hover, label.pick:hover { border-color: var(--blue); color: #fff; }
+.slot .acts button.play:not(:disabled) { border-color: var(--blue); color: var(--blue-ink); }
+.slot .acts button.play:not(:disabled):hover { background: var(--blue); color: #fff; }
 select { padding-right: .8em; }
 label.field { display: inline-flex; gap: .45rem; align-items: center; color: var(--muted); font-size: .9rem; }
 input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
 #status { color: var(--muted); min-height: 1.5em; margin: 0 0 1rem; }
 #status.bad { color: var(--accent-ink); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: .8rem; }
-.slot { background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: .7rem .8rem .8rem;
+.slot { transition: border-color .15s; background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: .7rem .8rem .8rem;
         display: flex; flex-direction: column; gap: .5rem; }
 .slot.empty { opacity: .45; }
+.slot:not(.empty):hover { border-color: #2a5ea8; }
 .slot .top { display: flex; justify-content: space-between; align-items: baseline; }
 .slot .name { font-weight: 700; font-size: 1.05rem; letter-spacing: .03em; }
 .slot .meta { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
-.slot canvas { width: 100%; height: 56px; background: #0a0a0c; border-radius: 6px; display: block; }
+.slot canvas { width: 100%; height: 56px; background: #020a16; border-radius: 6px; display: block; }
 .slot .acts { display: flex; gap: .45rem; }
 .slot .acts button { padding: .35em .9em; font-size: .88rem; }
 .slot .acts button.dl { flex: 1; }
 .foot { color: var(--muted); font-size: .85rem; margin-top: 2rem; }
-.foot a { color: var(--accent-ink); }
+.foot a { color: var(--blue-ink); }
 </style>
 </head>
 <body>
@@ -192,7 +199,9 @@ function draw(canvas, s) {
   g.clearRect(0, 0, w, h);
   if (!s) return;
   const span = Math.max(s.length, 44100 * 0.5);   // at least half a second wide: short kicks look short
-  g.fillStyle = "#e84c3c";
+  const grad = g.createLinearGradient(0, 0, 0, h);   // the skull's blue, brighter at the peaks
+  grad.addColorStop(0, "#5aa2ff"); grad.addColorStop(0.5, "#0074ff"); grad.addColorStop(1, "#5aa2ff");
+  g.fillStyle = grad;
   for (let x = 0; x < w; x++) {
     let lo = 0, hi = 0;
     for (let i = Math.floor(x * span / w), e = Math.min(s.length, Math.floor((x + 1) * span / w)); i < e; i++) {

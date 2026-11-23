@@ -11,7 +11,7 @@ mkdirSync(outDir, { recursive: true });
 const html = readFileSync(pagePath, "utf8");
 const script = html.match(/<script>([\s\S]*)<\/script>/)[1];
 const el = () => ({ value: "", hidden: false, disabled: false, textContent: "", className: "", innerHTML: "", files: [],
-  addEventListener() {}, append() {}, replaceChildren() {}, querySelector: () => el(), getContext: () => ({ clearRect() {}, fillRect() {} }),
+  addEventListener() {}, append() {}, replaceChildren() {}, querySelector: () => el(), getContext: () => ({ clearRect() {}, fillRect() {}, createLinearGradient: () => ({ addColorStop() {} }) }),
   clientWidth: 200, width: 0, height: 0, click() {}, remove() {}, selected: false });
 const els = {};
 const document = { getElementById: (id) => (els[id] = els[id] || el()), createElement: el, body: el(), querySelectorAll: () => [] };
