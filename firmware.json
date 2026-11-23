@@ -7,7 +7,10 @@
   "tagline": "A hardcore kick designer for the FM-1",
   "description": "GABBERKIX turns the M-VAVE FM-1 into a hardcore kick designer: a synthesized 909 shaped by layered filters, distortion and clippers, played on every beat or pitched from the keys and MIDI.",
   "tags": ["drum-machine", "synth"],
+  "install": "https://ejtb76.github.io/gabberkix/install/",
+  "site": "https://ejtb76.github.io/gabberkix/",
   "source": "https://github.com/ejtb76/gabberkix",
+  "screenshot": "app/site/img/screen.png",
   "hardware": {
     "models": ["FM-1"],
     "flash": ["856014", "B36014"],

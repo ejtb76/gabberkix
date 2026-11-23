@@ -1,18 +1,41 @@
 # GABBERKIX
 
-**A hardcore kick designer for the M-VAVE FM-1.** A kick in three layers: a midbody for character, a punch for the
-attack and a sub for the low end, pressed into one kick by groups driven hard into clippers.
+A hardcore kick designer for the M-VAVE FM-1, by Presethead.
 
-> **Status: phase 6 of 6.** The three layers are in: the midbody (a synthesized 909 through two rounds of EQ and
-> distortion), the punch (the hard tick at the start of a kick), pressed together in group A's clipper, and the sub
-> (group A's lows, split off), both into TOTAL's clipper; played on every beat or pitched from the keys and MIDI, with
-> sixteen presets, a randomizer, NOISE, PERF, ENV and RESAMPLE (`kick-firmware-instructions.md`; DOUBLE, a doubled
-> punch, left out: the punch and the clippers make hard transients already).
+GABBERKIX builds a kick in three layers: a midbody for character (a synthesized 909 through two rounds of EQ and
+distortion), a punch for the attack, and a sub for the low end, pressed into one kick by groups driven hard into
+clippers. It plays the kick on every beat or pitched from the keys and MIDI, throws new kicks with a randomizer, keeps
+sixteen presets, resamples a preset as the source of a new one, and follows or sends MIDI clock.
 
-Built on [fm1-base](https://github.com/charlesvestal/fm1-base) and felucca-bsp, from Felucca by Leo Kuroshita
-(Hügelton Instruments).
+- **Install:** [ejtb76.github.io/gabberkix](https://ejtb76.github.io/gabberkix/) (Chrome or Edge, FM-1 on USB); see
+  [Installing](#installing)
+- **Your kicks as audio files:** [ejtb76.github.io/gabberkix/render](https://ejtb76.github.io/gabberkix/render/);
+  see [Rendering presets to audio files](#rendering-presets-to-audio-files)
+- **Identity:** `FM-1_818XXYYZZ` (1.0 is `FM-1_818010000`)
+- **Licence:** GPL-3.0-only (see [LICENSE](LICENSE)). Every sound is synthesized: no samples.
+- **Built on:** [fm1-base](https://github.com/charlesvestal/fm1-base) and felucca-bsp, from Felucca by Leo Kuroshita
+  (Hügelton Instruments). Its installer can always put M-VAVE's own firmware back.
+- **Both flash chips:** runs, saves and updates on the original FM-1 (Puya P25Q80 flash) and on the newer units
+  (UC25HQ80 flash).
 
-## The sound so far
+## Installing
+
+1. Open **https://ejtb76.github.io/gabberkix/** in Chrome or Edge and connect the FM-1 by USB with a cable that
+   carries data.
+2. Choose **Install** and follow the page. Don't unplug the FM-1 until the page says Done; if the install stops, plug
+   it back in and press Install again: it carries on.
+3. Coming from a firmware built on M-VAVE's FM1 Open, the page may ask you to put M-VAVE's firmware back first: choose
+   **Back to the stock firmware**, then **Install**.
+4. To leave GABBERKIX, use the same page: **Back to the stock firmware**, or install any other firmware.
+
+The firmware is also attached to each release on GitHub as `gabberkix-X.Y.Z.fwsc`, for other installers such as The
+Firmware Hub.
+
+**What it keeps:** the sixteen presets, in the FM-1's flash outside the firmware: they survive a restart and an
+update of GABBERKIX. GABBERKIX does not read other firmwares' projects or samples, and another firmware may erase its
+presets: keep them in a backup file first (the render page's **Save backup file**).
+
+## The sound
 
 ```
 midbody: 909 or a preset's kick (RESAMPLE) -> EQ (4 peaks) -> DIST1 -> EQ2 (4 peaks) -> DIST2 -> POST (2 peaks) --+
@@ -183,7 +206,8 @@ it did.
 
 ## Rendering presets to audio files
 
-`web/render` is a page for the computer that turns the presets into audio files: connect the FM-1 with a USB cable,
+The render page ([ejtb76.github.io/gabberkix/render](https://ejtb76.github.io/gabberkix/render/); `web/render` in
+this repository) turns the presets into audio files: connect the FM-1 with a USB cable,
 open the page in Chrome or Edge and press **Read from FM-1** (or open a backup file). The page shows the sixteen
 slots, each with its waveform and length; play one, download it, or download them all in one ZIP. WAV or AIFF, 24-bit
 or 32-bit float, 44.1 kHz mono, at the root or transposed up to an octave either way. The page renders each kick with
@@ -192,8 +216,9 @@ master's limiter (not the MASTER volume), sample for sample. **Save backup file*
 (`.gkbk`) that the page opens again later, and that fm1-base's backup tools restore to an FM-1.
 
 The page reads the presets as a backup over USB (fm1-base's backup, `backup = true` in `app/fm1.toml`): while it does,
-the FM-1 plays on, and SAVE waits a moment (NOT SAVED BACKUP). A restore (fm1-base's `tools/fm1_backup.py`) replaces
-all sixteen presets, after a question on the FM-1's screen.
+the FM-1 plays on, and SAVE waits a moment (NOT SAVED BACKUP). A restore (the site's
+[backup page](https://ejtb76.github.io/gabberkix/backup/), or fm1-base's `tools/fm1_backup.py`) replaces all sixteen
+presets, after a question on the FM-1's screen.
 
 Build it with `sh tools/build_web.sh` (zig as the compiler: `pip install ziglang`): `build/web/render/index.html`, one
 file of about 70 KB that opens from disk or from a website.

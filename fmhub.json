@@ -1,0 +1,12 @@
+{
+  "what": "A hardcore kick designer: a synthesized 909 through EQ, distortion and hard clippers, with a punch and a sub layer. Throw random gabber kicks, shape every stage, keep 16 presets, resample one into a new kick, play it on the beat or from the keys, and sync to MIDI clock.",
+  "author": "Presethead",
+  "kinds": [
+    "drums"
+  ],
+  "play": "https://ejtb76.github.io/gabberkix/emu/",
+  "editor": "https://ejtb76.github.io/gabberkix/render/",
+  "image": "assets/splash.png",
+  "color": "#0074FF",
+  "sounds": "none – all synthesised"
+}

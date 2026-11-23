@@ -1,7 +1,7 @@
 # GABBERKIX's build settings (fm1-base's tools/build.py, through ./build.sh)
 name = "GABBERKIX"             # APP_NAME is in app.h; this names the build's files: gabberkix.fwsc, gabberkix-X.Y.fwsc
-id_prefix = "FM-1_818"         # package identity: dev FM-1_81800, releases FM-1_818XXYYZZ. NOT YET CHECKED against
-                               # the hub's catalogue (catalog.json): check and claim it before any release
+id_prefix = "FM-1_818"         # package identity: dev FM-1_81800, releases FM-1_818XXYYZZ (1.0.0: FM-1_818010000).
+                               # Free in the hub's catalogue (2026-11-23); claim FM-1_818\d{6} when submitting
 usb_manufacturer = "GABBERKIX"
 usb_product = "GABBERKIX FM-1"
 include = ["kick", "clock"]
@@ -18,6 +18,9 @@ usb_host = true                # the USB port hosts a MIDI device (another FM-1)
 # the site (tools/make_site.py)
 tagline = "A hardcore kick designer for the FM-1"
 repo = "https://github.com/ejtb76/gabberkix"
+install = "https://ejtb76.github.io/gabberkix/install/"
+site = "https://ejtb76.github.io/gabberkix/"
+screenshot = "app/site/img/screen.png"
 licence = "GPL-3.0-only"
 credits = "Built on fm1-base and felucca-bsp, from Felucca by Leo Kuroshita (Hügelton Instruments)."
 # firmware.json, for firmware hubs (fm1-base's docs/FIRMWARE-JSON.md): the build writes it from these and the keys above
