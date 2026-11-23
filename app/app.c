@@ -1293,13 +1293,7 @@ static void draw_header(uint32_t now)
         cv_text(x + 8, 5, &FONT_B, ui.msg[1], C_HI);
     } else {
         int32_t x = cv_text(8, 5, &FONT_B, ui.link ? "CONNECTIONS" : PAGE_TITLE[ui.page], C_WHITE);   /* where we are */
-        if (preset_cur >= 0) {           /* the preset loaded or saved last; a star: changed since */
-            t[0] = 'P';
-            int_text(preset_cur + 1, t + 1);
-            if (preset_edited)
-                text_cat(t, "*");
-            cv_text(x + 10, 9, &FONT_XS, t, C_GRAY);
-        }
+        (void)x;
         if (clock_ext) {                 /* an outside clock leads: its tempo, to 0.1 BPM */
             t[0] = 0;
             text_cat(t, "EXT ");
@@ -1501,9 +1495,13 @@ static void draw_lower(uint32_t now)
         text_cat(t, "> 1 S");
     }
     cv_text(100, WAVE_H + 18, &FONT_XS, t, C_GRAY);
-    if (kicks) {                                 /* the last kick's pitch */
-        note_text(last_semis, t);
-        cv_text(232 - text_w(&FONT_XS, t), WAVE_H + 18, &FONT_XS, t, C_HI);
+    if (preset_cur >= 0) {                       /* the preset loaded or saved last; EDITED: changed since */
+        t[0] = 0;
+        text_cat(t, "PRESET ");
+        int_text(preset_cur + 1, t + 7);
+        if (preset_edited)
+            text_cat(t, " EDITED");
+        cv_text(232 - text_w(&FONT_XS, t), WAVE_H + 18, &FONT_XS, t, preset_edited ? C_GRAY : C_HI);
     }
     cv_blit(0, 120);}
 

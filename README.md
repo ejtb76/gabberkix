@@ -138,7 +138,7 @@ The pages' knobs:
 | **ENV** | ATTACK, BODY, MIDDLE, TAIL (dB) | >BODY, >MID, >TAIL (ms) |
 | **PERF** | HEIGHT, PEAK1, PEAK2, PEAK3 | DRIVE, LENGTH |
 
-The header shows the page's title in full (DISTORTION 1, PUNCH EQ, PERFORMANCE ...), the tempo and the preset. Along
+The header shows the page's title in full (DISTORTION 1, PUNCH EQ, PERFORMANCE ...) and the tempo. Along
 the top the tabs: the pages of the layer shown (the midbody's six, the punch's two), the one shown lit, and the other
 layers by name (MID, PN, A, SUB, TOT, PERF; by their letter when the line is full). Each page has its own colour (SRC
 grey, 909 red, EQ cyan, D1 magenta, EQ2 blue, D2 amber, POST green, PNCH yellow, P.EQ teal, GRP.A pink, SUB violet,
@@ -174,11 +174,12 @@ GABBERKIX follows MIDI clock and sends it, as Amenity and FMLarynx do (the same 
 
 Sixteen kicks, one on each white key. Hold **SAVE** and press a white key to save the kick there; hold **SEL** and
 press one to load it. While SEL or SAVE is held, the white keys that hold a preset light dim, and the one loaded or
-saved last lights bright. The header shows it (P3), with a star once the kick has changed since. The presets are kept
-in the FM-1's flash, outside the firmware: they survive a restart and an update. A preset is the parameters alone (no
-audio); parameters are only ever added at the end of the list, so a preset saved now still loads in a later version. A
-preset saved before the punch loads with no punch and group A a straight wire, one saved before the sub with no split
-and TOTAL a straight wire, one saved before NOISE, PERF and ENV with all three neutral: each sounds as it did.
+saved last lights bright. The bottom line shows it (PRESET 3), and EDITED once the kick has changed since. The presets
+are kept in the FM-1's flash, outside the firmware: they survive a restart and an update. A preset is the parameters
+alone (no audio); parameters are only ever added at the end of the list, so a preset saved now still loads in a later
+version. A preset saved before the punch loads with no punch and group A a straight wire, one saved before the sub
+with no split and TOTAL a straight wire, one saved before NOISE, PERF and ENV with all three neutral: each sounds as
+it did.
 
 ## The splash
 
