@@ -97,6 +97,11 @@ static const page_t PAGES[] = {
                  COLOURS(255, 70, 20, 255, 150, 100)},
 };
 #define NPAGES ((int)(sizeof PAGES / sizeof PAGES[0]))
+/* each page's title, in full, in the header (the tabs keep their short names) */
+static const char *const PAGE_TITLE[] = {
+    [PG_SRC] = "SOURCE", [PG_909] = "909", [PG_EQ] = "EQ", [PG_D1] = "DISTORTION 1", [PG_EQ2] = "EQ 2",
+    [PG_D2] = "DISTORTION 2", [PG_POST] = "POST EQ", [PG_PUNCH] = "PUNCH", [PG_PEQ] = "PUNCH EQ", [PG_A] = "GROUP A",
+    [PG_SUB] = "SUB", [PG_TOT] = "TOTAL", [PG_ENV] = "ENVELOPE", [PG_PERF] = "PERFORMANCE"};
 
 #define SPEC_BINS 60                     /* the spectrum: a bar each 4 columns */
 #define SPEC_N 4096u                     /* over the kick's first 93 ms, Hann-windowed */
@@ -544,7 +549,7 @@ static void speak(void)                      /* a screen reader that has just st
         char t[64];
         t[0] = 0;
         text_cat(t, APP_NAME ". PAGE ");
-        text_cat(t, PAGES[ui.page].name);
+        text_cat(t, PAGE_TITLE[ui.page]);
         ann_say(t, 0, ANN_NOW);
     }
     ann_tick(plat_ms());
@@ -890,8 +895,8 @@ static void page_to(int p)
         ui.wave_dirty = 1;               /* (a page with a spectrum: it is made with the picture) */
     ui.page = p;
     ui.focus = -1;
-    app_say("PAGE", PAGES[p].name);
-    ui.msg_until = plat_ms() + 3000u;    /* the page's name stays a while */
+    app_say("PAGE", PAGE_TITLE[p]);      /* (said to a screen reader; the header shows the title itself) */
+    ui.msg_until = 0;
 }
 
 /* ARP: throw the dice (the 909's sweep, click and decay, the EQs, the distortions; the rest stays); SEL + ARP: back
@@ -988,7 +993,8 @@ static void input(void)
                 ui.link = !ui.link;
                 ui.link_sig = 0;
                 ui.redraw = 1;
-                app_say(ui.link ? "CONNECTIONS" : "PAGE", ui.link ? "" : PAGES[ui.page].name);
+                app_say(ui.link ? "CONNECTIONS" : "PAGE", ui.link ? "" : PAGE_TITLE[ui.page]);
+                ui.msg_until = 0;
             } else if (k == B_REC)               /* PERF; again: ENV, and back */
                 p = ui.page == PG_PERF ? PG_ENV : PG_PERF;
             else if (k == B_OCTDN)
@@ -1286,7 +1292,7 @@ static void draw_header(uint32_t now)
         int32_t x = cv_text(8, 5, &FONT_B, ui.msg[0], C_WHITE);
         cv_text(x + 8, 5, &FONT_B, ui.msg[1], C_HI);
     } else {
-        int32_t x = cv_text(8, 5, &FONT_B, APP_NAME, C_WHITE);
+        int32_t x = cv_text(8, 5, &FONT_B, ui.link ? "CONNECTIONS" : PAGE_TITLE[ui.page], C_WHITE);   /* where we are */
         if (preset_cur >= 0) {           /* the preset loaded or saved last; a star: changed since */
             t[0] = 'P';
             int_text(preset_cur + 1, t + 1);

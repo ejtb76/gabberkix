@@ -57,3 +57,12 @@ SAVE=DEVICE	save: device
 SEL+REC=BACK	select and rec: back
 TRANSPOSE	transpose
 EXT	external clock
+SOURCE	source
+DISTORTION 1	distortion 1
+DISTORTION 2	distortion 2
+EQ 2	E Q 2
+POST EQ	post E Q
+PUNCH EQ	punch E Q
+GROUP A	group A
+ENVELOPE	envelope
+PERFORMANCE	performance

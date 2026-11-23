@@ -138,20 +138,21 @@ The pages' knobs:
 | **ENV** | ATTACK, BODY, MIDDLE, TAIL (dB) | >BODY, >MID, >TAIL (ms) |
 | **PERF** | HEIGHT, PEAK1, PEAK2, PEAK3 | DRIVE, LENGTH |
 
-Along the top the tabs: the pages of the layer shown (the midbody's six, the punch's two), the one shown lit, and the
-other layers by name (MID, PN, A, SUB, TOT, PERF; by their letter when the line is full). Each page has its own colour
-(SRC grey, 909 red, EQ cyan, D1 magenta, EQ2 blue, D2 amber, POST green, PNCH yellow, P.EQ teal, GRP.A pink, SUB
-violet, TOTAL white, ENV lime, PERF orange), so a glance tells where you are. Under the knobs the screen shows the
-kick's first second (909), zoomed so its body fills the height (the zoom at the right, X2, X3: the tick at the start
-may run into the edge); on an EQ page its bands as an EQ plugin draws them (each a numbered dot with its own faint
-curve, the band the knobs turn lit, their sum the bright line) over the spectrum after the next distortion, where its
-sweet spots show (on P.EQ the punch's, on GRP.A the spectrum after the clipper); on a distortion page the spectrum
-after it; on PNCH the first 50 ms, the whole kick faint and the punch bright over it; on SUB the crossover's two
-halves (the sub's with its gain) over group A's spectrum; on ENV the kick with ENV's level over it; on PERF the three
-peaks' curve over the whole kick's spectrum. At each kick the screen moves with it: the header flashes in the page's
-colour and fades out, a playhead runs through the 909 and ENV pictures as the kick sounds, a meter along the bottom
-shows the output's level (after the limiter, -48 to 0 dBFS, falling 30 dB a second), and PLAY and the key PLAY's kick
-is on light for a moment.
+The header shows the page's title in full (DISTORTION 1, PUNCH EQ, PERFORMANCE ...), the tempo and the preset. Along
+the top the tabs: the pages of the layer shown (the midbody's six, the punch's two), the one shown lit, and the other
+layers by name (MID, PN, A, SUB, TOT, PERF; by their letter when the line is full). Each page has its own colour (SRC
+grey, 909 red, EQ cyan, D1 magenta, EQ2 blue, D2 amber, POST green, PNCH yellow, P.EQ teal, GRP.A pink, SUB violet,
+TOTAL white, ENV lime, PERF orange), so a glance tells where you are. Under the knobs the screen shows the kick's
+first second (909), zoomed so its body fills the height (the zoom at the right, X2, X3: the tick at the start may run
+into the edge); on an EQ page its bands as an EQ plugin draws them (each a numbered dot with its own faint curve, the
+band the knobs turn lit, their sum the bright line) over the spectrum after the next distortion, where its sweet spots
+show (on P.EQ the punch's, on GRP.A the spectrum after the clipper); on a distortion page the spectrum after it; on
+PNCH the first 50 ms, the whole kick faint and the punch bright over it; on SUB the crossover's two halves (the sub's
+with its gain) over group A's spectrum; on ENV the kick with ENV's level over it; on PERF the three peaks' curve over
+the whole kick's spectrum. At each kick the screen moves with it: the header flashes in the page's colour and fades
+out, a playhead runs through the 909 and ENV pictures as the kick sounds, a meter along the bottom shows the output's
+level (after the limiter, -48 to 0 dBFS, falling 30 dB a second), and PLAY and the key PLAY's kick is on light for a
+moment.
 
 ## MIDI and sync
 
