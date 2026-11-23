@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Presethead
+     GABBERKIX's render page: the presets on an FM-1 (read over USB, as a backup) or in a backup file, rendered to WAV
+     or AIFF by the engine the firmware runs (gk_render.c, WebAssembly). Put together by tools/make_render_page.py:
+     the template's {{...}} filled in (fm1-base's backup protocol and port finder, the engine). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{NAME}} · Render presets</title>
+<style>
+:root { --ground: #0d0d0f; --card: #17171b; --rule: #2c2c33; --ink: #f1efea; --muted: #a09d97; --accent: #e84c3c;
+        --accent-ink: #ff7a6b; --on-accent: #1a0806; --dim: #55545a; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); margin: 0; padding: 28px 16px 64px;
+       font: 400 16px/1.5 system-ui, "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
+main { max-width: 980px; margin: 0 auto; }
+h1 { font-size: 2rem; line-height: 1.1; margin: 0 0 .3rem; letter-spacing: .02em; }
+h1 span { color: var(--accent); }
+.lede { color: var(--muted); margin: 0 0 1.4rem; max-width: 60ch; }
+.bar { display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: center; background: var(--card);
+       border: 1px solid var(--rule); border-radius: 12px; padding: .9rem 1rem; margin: 0 0 1rem; }
+.bar .grow { flex: 1; }
+button, label.pick, select { font: 600 .95rem system-ui, sans-serif; border-radius: 999px; padding: .45em 1.15em;
+       cursor: pointer; border: 1px solid var(--rule); background: var(--ground); color: var(--ink); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, select:focus-visible, label.pick:focus-within { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+select { padding-right: .8em; }
+label.field { display: inline-flex; gap: .45rem; align-items: center; color: var(--muted); font-size: .9rem; }
+input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+#status { color: var(--muted); min-height: 1.5em; margin: 0 0 1rem; }
+#status.bad { color: var(--accent-ink); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: .8rem; }
+.slot { background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: .7rem .8rem .8rem;
+        display: flex; flex-direction: column; gap: .5rem; }
+.slot.empty { opacity: .45; }
+.slot .top { display: flex; justify-content: space-between; align-items: baseline; }
+.slot .name { font-weight: 700; font-size: 1.05rem; letter-spacing: .03em; }
+.slot .meta { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
+.slot canvas { width: 100%; height: 56px; background: #0a0a0c; border-radius: 6px; display: block; }
+.slot .acts { display: flex; gap: .45rem; }
+.slot .acts button { padding: .35em .9em; font-size: .88rem; }
+.slot .acts button.dl { flex: 1; }
+.foot { color: var(--muted); font-size: .85rem; margin-top: 2rem; }
+.foot a { color: var(--accent-ink); }
+</style>
+</head>
+<body>
+<main>
+<h1><span>{{NAME}}</span> render</h1>
+<p class="lede">Your sixteen presets as audio files, rendered by the same engine the FM-1 runs: each kick as PLAY plays
+it, with its resampled source, its punch and the master's limiter. Connect the FM-1 with a USB cable (Chrome or Edge),
+or open a backup file.</p>
+
+<div class="bar">
+  <button id="connect" class="primary" type="button">Read from FM-1</button>
+  <label class="pick">Open backup file<input id="file" type="file" accept=".{{EXT}},.bak,application/octet-stream"></label>
+  <span class="grow"></span>
+  <button id="savebak" type="button" hidden>Save backup file</button>
+</div>
+
+<div class="bar">
+  <label class="field">Format
+    <select id="fmt"><option value="wav">WAV</option><option value="aiff">AIFF</option></select></label>
+  <label class="field">Bits
+    <select id="bits"><option value="24">24-bit</option><option value="32">32-bit float</option></select></label>
+  <label class="field">Note <select id="note"></select></label>
+  <span class="grow"></span>
+  <button id="zip" class="primary" type="button" disabled>Download all (ZIP)</button>
+</div>
+
+<p id="status" role="status" aria-live="polite">No presets yet.</p>
+
+<div id="grid" class="grid" aria-label="Presets"></div>
+
+<p class="foot">44.1 kHz, mono. Each kick is rendered from its preset's parameters: what the FM-1 plays, before the
+MASTER volume. {{NAME}} is free software (GPL-3.0); built on fm1-base. <a href="{{REPO}}">Source</a>.</p>
+</main>
+
+<script>
+"use strict";
+{{PB_JS}}
+
+const FW_NAME = "{{NAME}}", OBJ_PRESETS = 3, NSLOTS = 16;
+const WASM_B64 = "{{WASM_B64}}";
+const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const noteName = (semis) => { const m = 31 + semis; return NOTES[m % 12] + (Math.floor(m / 12) - 1); };   // G1 = MIDI 31
+
+const $ = (id) => document.getElementById(id);
+let eng = null, kicks = [], image = null, audio = null, playing = null;
+
+// ---- the engine (gk_render.c as WebAssembly)
+async function engine() {
+  if (eng) return eng;
+  const bin = Uint8Array.from(atob(WASM_B64), (c) => c.charCodeAt(0));
+  const { instance } = await WebAssembly.instantiate(bin, {});
+  return (eng = instance.exports);
+}
+async function loadPresets(data) {
+  const x = await engine();
+  new Uint8Array(x.memory.buffer, x.gk_in(), data.length).set(data);
+  return x.gk_load(data.length);
+}
+async function renderAll(used) {
+  const x = await engine(), semis = Number($("note").value);
+  kicks = [];
+  for (let s = 0; s < NSLOTS; s++) {
+    if (!(used >> s & 1)) { kicks.push(null); continue; }
+    const n = x.gk_render(s, semis);
+    kicks.push(n ? new Float32Array(new Float32Array(x.memory.buffer, x.gk_out(), n)) : null);
+  }
+}
+
+// ---- files: WAV, AIFF, ZIP
+function pcm24(view, at, v, little) {
+  const i = Math.max(-8388608, Math.min(8388607, Math.round(v * 8388607)));
+  if (little) { view.setUint8(at, i & 255); view.setUint8(at + 1, (i >> 8) & 255); view.setUint8(at + 2, (i >> 16) & 255); }
+  else { view.setUint8(at, (i >> 16) & 255); view.setUint8(at + 1, (i >> 8) & 255); view.setUint8(at + 2, i & 255); }
+}
+const ascii = (view, at, s) => { for (let i = 0; i < s.length; i++) view.setUint8(at + i, s.charCodeAt(i)); };
+function wav(s, bits) {
+  const fl = bits === 32, bps = fl ? 4 : 3, data = s.length * bps, head = fl ? 58 : 44;
+  const buf = new ArrayBuffer(head + data + (data & 1)), v = new DataView(buf);
+  ascii(v, 0, "RIFF"); v.setUint32(4, buf.byteLength - 8, true); ascii(v, 8, "WAVE");
+  ascii(v, 12, "fmt "); v.setUint32(16, fl ? 18 : 16, true); v.setUint16(20, fl ? 3 : 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 44100, true); v.setUint32(28, 44100 * bps, true); v.setUint16(32, bps, true); v.setUint16(34, bits, true);
+  let at = 36;
+  if (fl) { v.setUint16(36, 0, true); ascii(v, 38, "fact"); v.setUint32(42, 4, true); v.setUint32(46, s.length, true); at = 50; }
+  ascii(v, at, "data"); v.setUint32(at + 4, data, true); at += 8;
+  for (let i = 0; i < s.length; i++, at += bps) fl ? v.setFloat32(at, s[i], true) : pcm24(v, at, s[i], true);
+  return new Uint8Array(buf);
+}
+function aiff(s, bits) {                       // 24-bit: AIFF; 32-bit float: AIFF-C, 'fl32'
+  const fl = bits === 32, bps = fl ? 4 : 3, data = s.length * bps;
+  const name = "\x1532-bit floating point", comm = fl ? 18 + 4 + name.length : 18;   // (a pascal string: 22, even)
+  const size = 4 + (fl ? 12 : 0) + 8 + comm + 8 + 8 + data + (data & 1);
+  const buf = new ArrayBuffer(8 + size), v = new DataView(buf);
+  ascii(v, 0, "FORM"); v.setUint32(4, size); ascii(v, 8, fl ? "AIFC" : "AIFF");
+  let at = 12;
+  if (fl) { ascii(v, 12, "FVER"); v.setUint32(16, 4); v.setUint32(20, 0xA2805140); at = 24; }
+  ascii(v, at, "COMM"); v.setUint32(at + 4, comm); v.setUint16(at + 8, 1); v.setUint32(at + 10, s.length);
+  v.setUint16(at + 14, bits);
+  v.setUint16(at + 16, 0x400E); v.setUint32(at + 18, 0xAC440000); v.setUint32(at + 22, 0);   // 44100, 80-bit extended
+  at += 26;
+  if (fl) { ascii(v, at, "fl32"); ascii(v, at + 4, name); at += 4 + name.length; }
+  ascii(v, at, "SSND"); v.setUint32(at + 4, 8 + data); v.setUint32(at + 8, 0); v.setUint32(at + 12, 0); at += 16;
+  for (let i = 0; i < s.length; i++, at += bps) fl ? v.setFloat32(at, s[i]) : pcm24(v, at, s[i], false);
+  return new Uint8Array(buf);
+}
+function zip(files) {                          // [{name, data}] -> a ZIP, stored (audio does not shrink)
+  const d = new Date(), time = d.getHours() << 11 | d.getMinutes() << 5 | d.getSeconds() >> 1;
+  const date = (d.getFullYear() - 1980) << 9 | (d.getMonth() + 1) << 5 | d.getDate();
+  const parts = [], central = [];
+  let off = 0;
+  for (const f of files) {
+    const nm = new TextEncoder().encode(f.name), crc = PB.crc32(f.data);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034B50, true); h.setUint16(4, 20, true); h.setUint16(10, time, true); h.setUint16(12, date, true);
+    h.setUint32(14, crc, true); h.setUint32(18, f.data.length, true); h.setUint32(22, f.data.length, true);
+    h.setUint16(26, nm.length, true);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014B50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(12, time, true);
+    c.setUint16(14, date, true); c.setUint32(16, crc, true); c.setUint32(20, f.data.length, true);
+    c.setUint32(24, f.data.length, true); c.setUint16(28, nm.length, true); c.setUint32(42, off, true);
+    parts.push(new Uint8Array(h.buffer), nm, f.data);
+    central.push(new Uint8Array(c.buffer), nm);
+    off += 30 + nm.length + f.data.length;
+  }
+  const size = central.reduce((a, b) => a + b.length, 0), e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054B50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true);
+  e.setUint32(12, size, true); e.setUint32(16, off, true);
+  return new Blob([...parts, ...central, new Uint8Array(e.buffer)], { type: "application/zip" });
+}
+function fileOf(s) {
+  const fmt = $("fmt").value, bits = Number($("bits").value);
+  const name = `${FW_NAME}_P${String(s + 1).padStart(2, "0")}_${noteName(Number($("note").value)).replace("#", "s")}.${fmt === "wav" ? "wav" : "aif"}`;
+  return { name, data: fmt === "wav" ? wav(kicks[s], bits) : aiff(kicks[s], bits) };
+}
+function download(blob, name) {
+  const url = URL.createObjectURL(blob), a = document.createElement("a");
+  a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+// ---- the page
+function say(text, bad = false) { $("status").textContent = text; $("status").className = bad ? "bad" : ""; }
+function draw(canvas, s) {
+  const w = canvas.width = canvas.clientWidth * devicePixelRatio, h = canvas.height = 56 * devicePixelRatio;
+  const g = canvas.getContext("2d");
+  g.clearRect(0, 0, w, h);
+  if (!s) return;
+  const span = Math.max(s.length, 44100 * 0.5);   // at least half a second wide: short kicks look short
+  g.fillStyle = "#e84c3c";
+  for (let x = 0; x < w; x++) {
+    let lo = 0, hi = 0;
+    for (let i = Math.floor(x * span / w), e = Math.min(s.length, Math.floor((x + 1) * span / w)); i < e; i++) {
+      if (s[i] < lo) lo = s[i];
+      if (s[i] > hi) hi = s[i];
+    }
+    const y0 = (1 - hi) * h / 2, y1 = (1 - lo) * h / 2;
+    if (y1 > y0) g.fillRect(x, y0, 1, Math.max(1, y1 - y0));
+  }
+}
+function play(s) {
+  audio = audio || new AudioContext({ sampleRate: 44100 });
+  if (playing) try { playing.stop(); } catch (_) { /* (ended) */ }
+  const b = audio.createBuffer(1, kicks[s].length, 44100);
+  b.copyToChannel(kicks[s], 0);
+  playing = audio.createBufferSource();
+  playing.buffer = b;
+  playing.connect(audio.destination);
+  playing.start();
+}
+function show() {
+  const grid = $("grid");
+  grid.replaceChildren();
+  for (let s = 0; s < NSLOTS; s++) {
+    const k = kicks[s], card = document.createElement("div");
+    card.className = "slot" + (k ? "" : " empty");
+    card.innerHTML = `<div class="top"><span class="name">PRESET ${s + 1}</span><span class="meta">${k ? Math.round(k.length / 44.1) + " ms" : "empty"}</span></div>
+      <canvas aria-hidden="true"></canvas>
+      <div class="acts"><button type="button" class="play" aria-label="Play preset ${s + 1}" ${k ? "" : "disabled"}>&#9654; Play</button>
+      <button type="button" class="dl" aria-label="Download preset ${s + 1}" ${k ? "" : "disabled"}>Download</button></div>`;
+    grid.append(card);
+    draw(card.querySelector("canvas"), k);
+    if (k) {
+      card.querySelector(".play").addEventListener("click", () => play(s));
+      card.querySelector(".dl").addEventListener("click", () => { const f = fileOf(s); download(new Blob([f.data]), f.name); });
+    }
+  }
+  const n = kicks.filter(Boolean).length;
+  $("zip").disabled = !n;
+  $("zip").textContent = n ? `Download all ${n} (ZIP)` : "Download all (ZIP)";
+}
+async function take(img, from) {             // a backup image -> the presets, rendered
+  let parsed;
+  try { parsed = PB.parse(img); } catch (e) { say(e.message, true); return; }
+  const rec = parsed.objs.find((o) => o.obj === OBJ_PRESETS);
+  if (!rec || !rec.data.length) { say(`No presets ${from}.`, true); return; }
+  const used = await loadPresets(rec.data);
+  if (used < 0) { say(`These are not ${FW_NAME} presets.`, true); return; }
+  image = img;
+  $("savebak").hidden = from !== "on the FM-1";
+  say("Rendering…");
+  await renderAll(used);
+  show();
+  const n = kicks.filter(Boolean).length;
+  say(n ? `${n} preset${n === 1 ? "" : "s"} ${from}, rendered at ${noteName(Number($("note").value))}.` : `All sixteen slots ${from} are empty: save a kick with SAVE + a white key first.`);
+}
+
+class Link {                                   // one MIDI in/out pair with a SysEx queue (as fm1-base's backup page)
+  constructor(input, output) {
+    this.input = input; this.output = output; this.q = []; this.waiter = null;
+    input.onmidimessage = (ev) => {
+      if (ev.data[0] !== 0xF0) return;
+      this.q.push(Array.from(ev.data));
+      if (this.waiter) { const w = this.waiter; this.waiter = null; w(); }
+    };
+  }
+  get lost() { return this.input.state === "disconnected" || this.output.state === "disconnected"; }
+  send(bytes) { try { this.output.send(bytes); return true; } catch (_) { return false; } }
+  drain() { this.q.length = 0; }
+  async read(ms) {
+    if (!this.q.length) {
+      let tm;
+      await Promise.race([new Promise((r) => { this.waiter = r; }), new Promise((r) => { tm = setTimeout(r, Math.max(ms, 0)); })]);
+      clearTimeout(tm);
+      this.waiter = null;
+    }
+    return this.q.shift() || null;
+  }
+  close() { this.input.onmidimessage = null; }
+}
+let access = null;
+$("connect").addEventListener("click", async () => {
+  const btn = $("connect");
+  btn.disabled = true;
+  let dev = null;
+  try {
+    if (!navigator.requestMIDIAccess) throw new Error("This browser has no Web MIDI. Open this page in Chrome or Edge, or open a backup file.");
+    if (!access) {
+      try { access = await navigator.requestMIDIAccess({ sysex: true }); }
+      catch (_) { throw new Error("MIDI with SysEx was not allowed. Allow MIDI in the site settings (the address bar), then try again."); }
+    }
+    say(`Looking for ${FW_NAME}…`);
+    dev = await PB.find(access, (i, o) => new Link(i, o), []);
+    say(`Reading the presets from ${FW_NAME}…`);
+    const { image: img } = await PB.backup(dev.link, (n) => say(`Reading the presets: ${n.toLocaleString("en")} bytes`));
+    await take(img, "on the FM-1");
+  } catch (e) {
+    say(e.message, true);
+  } finally {
+    if (dev) dev.link.close();
+    btn.disabled = false;
+  }
+});
+$("file").addEventListener("change", async (ev) => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  try {
+    const { image: img } = PB.split(new Uint8Array(await f.arrayBuffer()));
+    await take(img, `in ${f.name}`);
+  } catch (e) { say(e.message, true); }
+  ev.target.value = "";
+});
+$("savebak").addEventListener("click", () => {
+  const d = new Date(), pad = (v) => String(v).padStart(2, "0");
+  download(new Blob([image]), `${FW_NAME.toLowerCase()}-backup-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.{{EXT}}`);
+});
+$("zip").addEventListener("click", () => {
+  const files = [];
+  for (let s = 0; s < NSLOTS; s++) if (kicks[s]) files.push(fileOf(s));
+  const fmt = $("fmt").value.toUpperCase(), note = noteName(Number($("note").value)).replace("#", "s");
+  download(zip(files), `${FW_NAME}_presets_${note}_${fmt}.zip`);
+});
+for (let t = -12; t <= 12; t++) {
+  const o = document.createElement("option");
+  o.value = t; o.textContent = `${noteName(t)}${t ? ` (${t > 0 ? "+" : ""}${t})` : " (root)"}`;
+  if (!t) o.selected = true;
+  $("note").append(o);
+}
+$("note").addEventListener("change", async () => {
+  if (!eng || !image) return;
+  const rec = PB.parse(image).objs.find((o) => o.obj === OBJ_PRESETS);
+  await renderAll(await loadPresets(rec.data));
+  show();
+  say(`Rendered at ${noteName(Number($("note").value))}.`);
+});
+addEventListener("resize", () => document.querySelectorAll(".slot canvas").forEach((c, s) => draw(c, kicks[s])));
+show();
+</script>
+</body>
+</html>

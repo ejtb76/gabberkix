@@ -11,6 +11,9 @@ ble = true                     # Bluetooth MIDI
 ble_stack = "own"              # fm1-base's own stack: nothing of JieLi's linked (the licence stays GPL-3.0)
 ble_central = true             # and to Bluetooth MIDI devices (another FM-1): the connections page (SEL + REC)
 ble_midi_time = true           # Bluetooth MIDI by the sender's time: a clock over Bluetooth without its bunching
+backup = true                  # the presets backed up and restored over USB; the render page reads them (web/render)
+backup_ext = "gkbk"
+backup_holds = "the sixteen presets"
 usb_host = true                # the USB port hosts a MIDI device (another FM-1) when asked: the connections page
 # the site (tools/make_site.py)
 tagline = "A hardcore kick designer for the FM-1"

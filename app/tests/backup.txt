@@ -1,0 +1,16 @@
+# backup and restore over USB (fm1-base device/backup.c): the presets, all or nothing
+wait 300
+press SAVE
+tapkey w2
+release SAVE
+expect saves 1
+expect used 4
+backup out:gk.gkbk
+tap ARP
+press SAVE
+tapkey w5
+release SAVE
+expect used 36
+restore out:gk.gkbk
+expect used 4
+expect preset 0

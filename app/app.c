@@ -580,6 +580,7 @@ static presets_t presets;                /* this firmware's layout */
 static int preset_cur = -1;              /* the slot loaded or saved last; -1 none */
 static uint8_t preset_edited;            /* the kick has changed since */
 static uint32_t preset_saves;            /* (the host's checks) */
+static volatile uint8_t backup_held;     /* a backup streams over USB: no saving meanwhile */
 
 static void presets_load(void)
 {
@@ -644,6 +645,10 @@ static void preset_save(int slot)
 {
     char t[4];
     int i;
+    if (backup_held) {                   /* a backup is streaming: a moment */
+        app_say("NOT SAVED", "BACKUP");
+        return;
+    }
     for (i = 0; i < KP_COUNT; i++)
         presets.v[slot * KP_COUNT + i] = params.v[i];
     presets.used |= (uint16_t)(1u << slot);
@@ -657,6 +662,25 @@ static void preset_save(int slot)
     cook();                              /* (the punch may play this preset) */
     int_text(slot + 1, t);
     app_say("SAVED", t);
+}
+
+/* ---- backup and restore over USB (fm1-base device/backup.c; the render page, web/render, reads the backup too):
+ * presets are saved as they are made, so a flush has nothing to do; while a backup streams, SAVE waits */
+int app_backup_playing(void) { return playing; }
+void app_backup_flush(void) {}
+void app_backup_hold(int on) { backup_held = (uint8_t)(on != 0); }
+void app_backup_restored(void)           /* new presets: everything from them again */
+{
+    presets_load();
+    preset_cur = -1;
+    preset_edited = 0;
+    kick_set_source(0, 0);               /* (a SOURCE on a preset: made again from the new one) */
+    resample_slot = -1;
+    resample_saves = ~preset_saves;
+    cook();
+    ui.wave_dirty = 1;
+    ui.redraw = 1;
+    app_say("RESTORED", "PRESETS");
 }
 
 static int white_slot(uint32_t key)      /* the preset slot of a key: -1 for a black key */

@@ -181,6 +181,23 @@ version. A preset saved before the punch loads with no punch and group A a strai
 with no split and TOTAL a straight wire, one saved before NOISE, PERF and ENV with all three neutral: each sounds as
 it did.
 
+## Rendering presets to audio files
+
+`web/render` is a page for the computer that turns the presets into audio files: connect the FM-1 with a USB cable,
+open the page in Chrome or Edge and press **Read from FM-1** (or open a backup file). The page shows the sixteen
+slots, each with its waveform and length; play one, download it, or download them all in one ZIP. WAV or AIFF, 24-bit
+or 32-bit float, 44.1 kHz mono, at the root or transposed up to an octave either way. The page renders each kick with
+the same engine the FM-1 runs, compiled to WebAssembly: what PLAY plays, with its resampled SOURCE, its punch and the
+master's limiter (not the MASTER volume), sample for sample. **Save backup file** keeps the presets in a file
+(`.gkbk`) that the page opens again later, and that fm1-base's backup tools restore to an FM-1.
+
+The page reads the presets as a backup over USB (fm1-base's backup, `backup = true` in `app/fm1.toml`): while it does,
+the FM-1 plays on, and SAVE waits a moment (NOT SAVED BACKUP). A restore (fm1-base's `tools/fm1_backup.py`) replaces
+all sixteen presets, after a question on the FM-1's screen.
+
+Build it with `sh tools/build_web.sh` (zig as the compiler: `pip install ziglang`): `build/web/render/index.html`, one
+file of about 70 KB that opens from disk or from a website.
+
 ## The splash
 
 At power-on the FM-1 shows the logo (`assets/splash.png`, 240 × 240) and the version, for 2.5 seconds. To change it: a
@@ -205,6 +222,14 @@ build/kick_render kick.wav                    # the blank 909
 build/kick_render kick.wav 12 DECAY=900       # an octave up, a longer decay
 build/kick_render kick.wav GAIN3=18 Q3=400 DRIVE1=18 GAIN2.2=20 Q2.2=600 TYPE2=HARD
                                               # a band boosted, DIST1 pushed, EQ2's band 2 up, DIST2 HARD
+```
+
+The render page's checks (Node): the WebAssembly against the same code built natively, and the files the page makes:
+
+```
+sh tools/build_render.sh && sh tools/build_web.sh
+node tests/render_test.mjs build/web/gk_render.wasm PRESETS.bin REFDIR      # REFDIR: build/render_ref's renders
+node tests/render_page_test.mjs build/web/render/index.html BACKUP.gkbk OUTDIR
 ```
 
 Install over USB from Windows (Python with mido and python-rtmidi):

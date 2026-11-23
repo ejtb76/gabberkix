@@ -15,6 +15,15 @@ void app_boot(void);
 #define APP_BTDEV                        /* Bluetooth MIDI devices (lib/btdev.h): the connections page (SEL + REC) */
 #define APP_TICK                         /* app_tick: MIDI in (stamped), the clock, THRU, clock out: 1 kHz */
 void app_tick(void);
+/* backup and restore over USB (fm1.toml backup = true): the presets; the render page (web/render) reads them too */
+#define APP_BACKUP_OBJS {OBJ_PRESETS}
+#define APP_BACKUP_MAGIC 0x4B42474Bu     /* "KGBK" (the presets object's own magic too) */
+#define APP_BACKUP_VERSION 1u
+#define APP_BACKUP_WHAT "replaces all presets"
+int app_backup_playing(void);
+void app_backup_flush(void);
+void app_backup_hold(int on);
+void app_backup_restored(void);
 #define APP_PALETTE 3u                   /* gfx.c PALETTES: red */
 #define APP_BLOCK 256u                   /* frames per audio block: 5.8 ms at 44.1 kHz */
 
