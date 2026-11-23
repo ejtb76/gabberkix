@@ -4,11 +4,14 @@ id_prefix = "FM-1_818"         # package identity: dev FM-1_81800, releases FM-1
                                # the hub's catalogue (catalog.json): check and claim it before any release
 usb_manufacturer = "GABBERKIX"
 usb_product = "GABBERKIX FM-1"
-include = ["kick"]
-o2 = ["kick/*.c"]              # the kick engine, at -O2
+include = ["kick", "clock"]
+o2 = ["kick/*.c", "clock/*.c"]   # the kick engine and the clock follower, at -O2
 words = "words.tsv"
 ble = true                     # Bluetooth MIDI
 ble_stack = "own"              # fm1-base's own stack: nothing of JieLi's linked (the licence stays GPL-3.0)
+ble_central = true             # and to Bluetooth MIDI devices (another FM-1): the connections page (SEL + REC)
+ble_midi_time = true           # Bluetooth MIDI by the sender's time: a clock over Bluetooth without its bunching
+usb_host = true                # the USB port hosts a MIDI device (another FM-1) when asked: the connections page
 # the site (tools/make_site.py)
 tagline = "A hardcore kick designer for the FM-1"
 repo = "https://github.com/ejtb76/gabberkix"

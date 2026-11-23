@@ -107,6 +107,7 @@ screen are computed from the same coefficients the sound uses (`tools/chain_test
 | **OCT−** | SUB |
 | **OCT+** | TOTAL; again: its next band |
 | **REC** | PERF; again: ENV, and back |
+| **SEL** held + **REC** | The connections page, and back |
 | **LFO** | The EQ2 page; again: the next band |
 | **GLO** | The POST page; again: the other band |
 | **SEL** held + white key | Load the preset on that key |
@@ -116,9 +117,10 @@ screen are computed from the same coefficients the sound uses (`tools/chain_test
 | **K1–K4** | The page's top row |
 | **SEL** held + **K1–K4** | The second row |
 | **PRESETS** | Tempo, 60–300 BPM (160 at power-on) |
+| **ALGO** | TRANSPOSE: PLAY's kick and the keys, -12 to +12 semitones (MIDI's notes keep their pitch); shown left of the tempo |
 | **PLAY** | A kick on every beat, at the root; again to stop |
 | **Keys** | A kick at the key's pitch: the middle G (G4) is the root, the low G an octave down, the top G an octave up |
-| **MIDI in** | Note on (USB, TRS, Bluetooth): a kick at the note's pitch, note 67 (G4) the root, other octaves folded into an octave down or up |
+| **MIDI in** | Note on (USB, TRS, Bluetooth): a kick at the note's pitch, note 67 (G4) the root, other octaves folded into an octave down or up; clock, Start, Continue, Stop followed |
 | **MASTER** | Volume |
 
 The pages' knobs:
@@ -148,6 +150,22 @@ after it; on PNCH the first 50 ms, the whole kick faint and the punch bright ove
 halves (the sub's with its gain) over group A's spectrum; on ENV the kick with ENV's level over it; on PERF the three
 peaks' curve over the whole kick's spectrum.
 
+## MIDI and sync
+
+GABBERKIX follows MIDI clock and sends it, as Amenity and FMLarynx do (the same clock follower):
+
+- **An outside clock** (USB, the TRS jack or Bluetooth): Start arms it, the first pulse is beat 1, a kick on every
+  24th pulse; Continue goes on, Stop stops. The pulses come in stamped with the time they arrived (Bluetooth's at its
+  sender's time) and a delay-locked loop turns them into a smooth time line, on which each kick is placed to the
+  sample: USB's frames, a DAW's buffers and Bluetooth's bunching do not reach the beat. The header shows EXT and the
+  tempo found, to 0.1 BPM. Half a second without pulses (and no Stop): GABBERKIX plays on at that tempo.
+- **Its own clock**: PLAY sends Start, 24 pulses a beat and Stop to USB and Bluetooth, each at the moment it is heard,
+  so another FM-1 or a DAW follows the sound.
+- **THRU**: everything that comes in (but SysEx) goes on at once to the other outputs, never back where it came from.
+- **The connections page** (SEL + REC): the Bluetooth MIDI devices found nearby (another FM-1, a controller) and the
+  USB port's role, DEVICE (to a computer) or HOST (to a MIDI device). SELECT moves the cursor, SAVE connects or lets
+  go, SEL + REC goes back. The clock and THRU reach every connection.
+
 ## Presets
 
 Sixteen kicks, one on each white key. Hold **SAVE** and press a white key to save the kick there; hold **SEL** and
@@ -160,9 +178,9 @@ and TOTAL a straight wire, one saved before NOISE, PERF and ENV with all three n
 
 ## The splash
 
-At power-on the FM-1 shows the logo (`assets/splash.png`, 240 × 240) and the version. To change it: a new 240 × 240
-PNG there, then `python -I tools/make_splash.py assets/splash.png app/splash.inc` (16 colours, two pixels to a
-byte: 28.8 KB of flash).
+At power-on the FM-1 shows the logo (`assets/splash.png`, 240 × 240) and the version, for 2.5 seconds. To change it: a
+new 240 × 240 PNG there, then `python -I tools/make_splash.py assets/splash.png app/splash.inc` (16 colours, two
+pixels to a byte: 28.8 KB of flash).
 
 ## Building and testing
 

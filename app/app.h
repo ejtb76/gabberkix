@@ -9,6 +9,12 @@
 #define APP_NAME "GABBERKIX"
 #define APP_SPLASH_RGB RGB(232, 76, 60)
 #define APP_SPLASH                       /* the logo (assets/splash.png) and the version: app_splash, app.c */
+#define APP_BOOT                         /* app_boot: the splash stays a while (the start alone takes half a second) */
+void app_boot(void);
+#define APP_USB_HOST_NAME                /* the USB device hosted, by its own name: HOST TO AMENITY */
+#define APP_BTDEV                        /* Bluetooth MIDI devices (lib/btdev.h): the connections page (SEL + REC) */
+#define APP_TICK                         /* app_tick: MIDI in (stamped), the clock, THRU, clock out: 1 kHz */
+void app_tick(void);
 #define APP_PALETTE 3u                   /* gfx.c PALETTES: red */
 #define APP_BLOCK 256u                   /* frames per audio block: 5.8 ms at 44.1 kHz */
 

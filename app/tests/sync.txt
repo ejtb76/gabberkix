@@ -1,0 +1,67 @@
+# MIDI: ours out (PLAY: Start and 24 pulses a beat, Stop), an outside clock followed (USB and Bluetooth: Start arms,
+# the first pulse is beat 1, a kick every 24), ours again when it stops without a Stop; THRU; TRANSPOSE (ALGO).
+master 4096
+wait 300
+# 160 BPM: 64 pulses a second; 1.5 s from PLAY (and its tap): 96 to 104, and kicks at 0, 375, 750, 1125, 1500 ms
+tap PLAY
+wait 1500
+expect clocks_out >93
+expect clocks_out <105
+expect kicks >3
+expect kicks <6
+tap PLAY
+expect playing 0
+wait 300
+# a computer's clock over USB (21 ms a pulse: 119 BPM): Start, 25 pulses: beat 1 and beat 2
+midi FA 00 00
+clock 25
+expect playing 1
+expect ext 1
+expect kicks >6
+midi FC 00 00
+wait 20
+expect playing 0
+wait 600
+# over Bluetooth: at the sender's time (ble_midi_time); the first pulse is beat 1
+ble connect
+wait 1200
+midi BLE FA 00 00
+midi BLE F8 00 00
+wait 20
+expect playing 1
+midi BLE FC 00 00
+wait 20
+expect playing 0
+wait 600
+# the outside clock stops without a Stop: after half a second ours plays on (and sends nothing: no Start of its own)
+midi FA 00 00
+clock 30
+wait 1500
+expect playing 1
+expect ext 0
+midi FC 00 00
+wait 20
+expect playing 0
+wait 600
+# THRU: a note from USB goes on to Bluetooth, not back to USB
+out
+midi 90 30 64
+wait 10
+expect_out BLE 90 30 64
+# TRANSPOSE: ALGO 3 up; PLAY's kick and the keys move, a MIDI note does not
+turn ALGO 3
+expect xpose 3
+tap PLAY
+wait 100
+expect semis 3
+tap PLAY
+key 14 down
+wait 50
+key 14 up
+expect semis 3
+midi 90 43 64
+wait 50
+expect semis 0
+turn ALGO -20
+expect xpose -12
+shot transpose.png

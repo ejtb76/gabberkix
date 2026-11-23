@@ -1,0 +1,56 @@
+# The connections page (SEL + REC), in the knobs' place: the Bluetooth MIDI devices found, then the USB port. SELECT
+# moves the cursor, SAVE enters (connect / let go; USB to HOST / back to DEVICE); the clock goes out to all.
+master 4096
+wait 1500
+press SEL
+tap REC
+release SEL
+expect link 1
+wait 2500
+shot 01-page-looking.png
+tap SAVE
+wait 2000
+shot 02-bt-connect.png
+expect ble_dev 4
+tap SAVE
+wait 500
+turn SELECT 3
+wait 200
+shot 03-usb-row.png
+tap SAVE
+wait 300
+shot 04-usb-host-looking.png
+usbh plug AMENITY
+wait 600
+shot 05-usb-host-to.png
+press SEL
+tap REC
+release SEL
+expect link 0
+# PLAY: our clock out, to the FM-1 hosted (Start, then 24 a beat: 160 BPM, the tap and 2 s: about 130 pulses)
+tap PLAY
+wait 2000
+expect usbh_clocks >125
+expect usbh_clocks <137
+# its clock in: we follow it (no pulses of our own meanwhile)
+tap PLAY
+expect playing 0
+usbh midi FA 00 00
+usbh clock 10
+expect playing 1
+expect ext 1
+usbh midi FC 00 00
+wait 10
+expect playing 0
+# SAVE + a key still stores a preset with the page up, not its row's action
+press SEL
+tap REC
+release SEL
+press SAVE
+tapkey w0
+release SAVE
+expect used 1
+expect link 1
+# a page shortcut: the page goes
+tap HOME
+expect link 0

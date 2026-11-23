@@ -14,13 +14,16 @@
  *   FX           D1 (again: D2, and back)                            GLO  POST (again: the other band)
  *   ENV          PNCH (again: P.EQ, and back)                        SEQ  GRP.A (again: its next band)
  *   OCT-         SUB                                                 OCT+ TOTAL (again: its next band)
- *   REC          PERF (again: ENV, and back)
+ *   REC          PERF (again: ENV, and back); SEL + REC: the connections page (Bluetooth MIDI devices, the USB
+ *                port's role): SELECT moves its cursor, SAVE connects or lets go, SEL + REC back
  *   K1..K4       the page's first four parameters; with SEL held, the next four
  *   SEL + white key    load the preset on that key; SAVE + white key: save the kick there. Held, SEL and
  *                SAVE light the keys that hold a preset half, the one loaded or saved last bright
  *   ARP          throw the dice: extreme curves on both EQs, new distortions, as loud as a new kick
  *   SEL + ARP    undo the last throw
- *   PRESETS      tempo, 60..300 BPM
+ *   PRESETS      tempo, 60..300 BPM; ALGO: TRANSPOSE, PLAY's kick and the keys -12 .. +12 semitones
+ *   MIDI         clock in (USB, TRS, Bluetooth: followed, as FMLarynx and Amenity follow it) and out (PLAY on our
+ *                own tempo), Start / Continue / Stop, notes in; everything passed on (THRU)
  *   PLAY         a kick on every beat, or stop
  *   keys         a kick at that key's pitch: G4 (the middle G) is the root, G3 an octave down, G5 an octave up
  *   MIDI in      note on: a kick at the note's pitch, note 67 (G4) the root, folded into an octave down or up
@@ -29,12 +32,13 @@
  * scope. The sound is app/kick/kick.c. */
 #include "fastmath.h"
 #include "kick.h"
+#include "gk_clock.h"                    /* MIDI clock in: the delay-locked loop, as FMLarynx's and Amenity's */
+#include "btdev.h"                       /* Bluetooth MIDI devices: the connections page (SEL + REC) */
 
 #define ROOT_NOTE 67                     /* G4: the key and the MIDI note that play the root */
 #define TEMPO_MIN 60
 #define TEMPO_MAX 300
 #define TEMPO_DEF 160
-#define BEAT_UNITS (KICK_RATE * 60u)     /* the beat clock: bpm added a frame, a beat at this many */
 
 /* --------------------------------------------------------------- pages --- */
 /* a page: up to eight parameters, K1..K4 and (SEL held) K1..K4 again; -1 = none. The pages follow the sound, so
@@ -113,10 +117,8 @@ static volatile uint8_t muted;           /* the render silent (while the resampl
 static volatile uint8_t coefs_cur;
 static kick_kit_t engine;                /* the audio interrupt's */
 
-static volatile uint8_t playing;         /* PLAY: a kick every beat */
-static volatile uint8_t play_start;      /* PLAY just pressed: the first beat now */
+static volatile uint8_t playing;         /* a kick every beat (PLAY, or an outside Start) */
 static volatile int32_t tempo = TEMPO_DEF;
-static uint32_t beat_acc;                /* the beat clock (render) */
 static volatile uint32_t kicks;          /* triggered so far (the host's checks, the screen's beat light) */
 static volatile int32_t last_semis;
 
@@ -159,15 +161,91 @@ static int fold(int semis)               /* into an octave down .. an octave up 
     return semis;
 }
 
-static void midi_in(void)                /* audio interrupt: the notes that came in */
+/* ---- MIDI: in, the clock, thru (the 1 kHz tick), as FMLarynx and Amenity have them.
+ * The beat runs in the audio interrupt as 24 pulses a quarter note, each on its own sample (app_render renders up to
+ * it, plays it, renders on), at the time it is heard: a block is heard HEARD_TICKS after it is rendered. A kick on
+ * every 24th, the first at once.
+ *   Ours: counted in frames at the tempo; it sends Start, the pulses and Stop to USB and Bluetooth, each at the time
+ *         it is heard (out_at, sent by the tick), so another FM-1 or a DAW follows the sound, not the render.
+ *   From outside (MIDI clock over USB, the TRS jack or Bluetooth): the tick reads each pulse with the time it came in
+ *         (plat_midi_in_t24: Bluetooth's at its sender's time) and gk_clock.c's delay-locked loop turns those times
+ *         into a smooth time line; the pulses are played on that line, never at the moment one is read, so USB's
+ *         frames, a DAW's buffers, Bluetooth's bunching and the screen's drawing do not reach the beat. A Start arms,
+ *         the first pulse after it is beat 1; Continue goes on where it was; Stop stops; half a second without
+ *         pulses: ours plays on at the tempo it had. More than LOCK_FAR pulses behind the line (a held-up interrupt),
+ *         the pulses in between pass silently, not played at once. */
+#define HEARD_TICKS ((uint32_t)((uint64_t)APP_BLOCK * PLAT_TICKS_PER_US * 1000000u / 44100u))
+#define TICKS_PER_FRAME ((float)GK_TICK_HZ / 44100.0f)
+#define INT_PULSE 26460000u                     /* ours: a pulse is 44100 x 60 x 10 (frames x BPM x 10 x 24) */
+#define MIDI_TO (TO_USB | TO_BLE)               /* out: USB (or the device it hosts) and Bluetooth */
+enum { LOCK_FAR = 6, MAX_PULSES = 48 };         /* (MAX_PULSES: a block plays at most these) */
+enum { RQ_NONE, RQ_START, RQ_STOP };
+
+/* what the audio interrupt sends (the clock) goes with the time it is heard: the tick sends each then */
+enum { OUTQ = 64 };
+static struct { uint32_t at, pkt; } outq[OUTQ];
+static volatile uint32_t outq_w, outq_r;
+static void out_at(uint32_t pkt, uint32_t at)   /* audio interrupt */
 {
-    uint32_t pkt;
-    int port;
-    while (plat_midi_in(&pkt, &port)) {
-        uint32_t st = (pkt >> 8) & 0xFFu, d1 = (pkt >> 16) & 0x7Fu, d2 = pkt >> 24;
-        if ((st & 0xF0u) == 0x90u && d2)
-            trigger(fold((int)d1 - ROOT_NOTE));
-    }
+    uint32_t w = outq_w;
+    if (w - outq_r >= OUTQ)
+        return;
+    outq[w % OUTQ].at = at;
+    outq[w % OUTQ].pkt = pkt;
+    __asm__ volatile("" ::: "memory");
+    outq_w = w + 1u;
+}
+static volatile uint32_t clocks_out;            /* pulses sent (the host's checks) */
+static void clock_out(uint32_t status, uint32_t at)   /* CIN F: one byte */
+{
+    out_at(0x0Fu | status << 8, at);
+    if (status == 0xF8u)
+        clocks_out++;
+}
+
+/* the MIDI notes, from the tick to the render: a small ring of kicks (semitones from the root) */
+#define MIDIQ 16u
+static volatile int8_t midiq[MIDIQ];
+static volatile uint32_t midiq_w, midiq_r;
+
+static volatile uint8_t play_req;               /* main loop asks the audio interrupt: PLAY's Start or Stop */
+static volatile uint8_t clock_ext;              /* tick: an outside clock is followed (gk_clock) */
+static volatile uint16_t clock_bpm_x10;         /* tick: its tempo as the loop found it (BPM x 10) */
+static uint32_t pulse_n;                        /* audio interrupt: pulses since the last beat */
+static uint8_t beat_first;                      /* the next pulse is beat 1 */
+static uint32_t int_acc;                        /* ours: frames x BPM x 10 x 24 into the pulse */
+static volatile uint32_t int_hold10;            /* ours plays on at an outside clock's tempo (BPM x 10; 0: at tempo) .. */
+static int32_t int_hold_bpm;                    /* .. until the tempo moves from this, or PLAY / Stop / a Start */
+static uint32_t ext_k;                          /* outside: the next pulse to play, counted from the Start's first */
+static uint8_t int_run, seen_start, was_state;  /* ours runs (and sends); the last Start seen; the loop's last state */
+static uint8_t ext_ran;                         /* the outside clock has run since its Start: only then does ours play
+                                                  * on when it goes */
+static volatile int8_t xpose;                   /* ALGO: PLAY and the keys moved by this, semitones (not MIDI's notes) */
+
+unsigned gk_tempo_x10(void) { return (unsigned)tempo * 10u; }
+
+static uint32_t now24(void)
+{
+#ifdef PLAT_HOST
+    return plat_ms() * 24000u;                  /* (the simulator's plat_ticks24 is real time) */
+#else
+    return plat_ticks24();
+#endif
+}
+
+static void on_pulse(int sound)                 /* audio interrupt: a pulse; a kick on beat 1 and every 24th after */
+{
+    if (!playing)
+        return;
+    if (beat_first) {
+        beat_first = 0;
+        pulse_n = 0;
+    } else if (++pulse_n < 24u)
+        return;
+    else
+        pulse_n = 0;
+    if (sound)
+        trigger(xpose);
 }
 
 static float mono[APP_BLOCK];
@@ -176,38 +254,118 @@ static float lim_env;                    /* the master limiter's */
 
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
+    uint32_t done = 0, i, fired = 0, now = now24() + HEARD_TICKS;   /* when this block's first frame is heard */
+    float gain = (float)master_q12 * (8388607.0f / 4096.0f);
+    struct gk_follow f;
+    int follow;
+    uint8_t req;
     if (muted) {                         /* (a resample being rendered) */
-        uint32_t i;
         for (i = 0; i < 2u * n; i++)
             lr[i] = 0;
         return;
     }
-    uint32_t done = 0, i;
-    float gain = (float)master_q12 * (8388607.0f / 4096.0f);
-    midi_in();
-    while (keyq_r != keyq_w) {
+    while (keyq_r != keyq_w) {           /* the keys' kicks and MIDI's */
         trigger(keyq[keyq_r % KEYQ]);
         keyq_r++;
     }
-    if (play_start) {
-        play_start = 0;
-        beat_acc = BEAT_UNITS;           /* the first beat on this block's first frame */
+    while (midiq_r != midiq_w) {
+        trigger(midiq[midiq_r % MIDIQ]);
+        midiq_r++;
     }
-    while (done < n) {
-        uint32_t m = n - done;
-        if (playing) {
-            uint32_t bpm = (uint32_t)tempo, left;
-            if (beat_acc >= BEAT_UNITS) {
-                beat_acc -= BEAT_UNITS;
-                trigger(0);
+    gk_follow_read(&f);
+    follow = f.state == CLOCK_ARMED || f.state == CLOCK_RUNNING;
+    if (f.state != CLOCK_OFF && f.start != seen_start) {   /* a Start or Continue from outside */
+        seen_start = f.start;
+        if (int_run)
+            clock_out(0xFCu, now);       /* ours gives way */
+        int_run = 0;
+        ext_k = 0;
+        ext_ran = 0;
+        if (!f.resume)                   /* Start: beat 1 at the first pulse */
+            beat_first = 1;
+        playing = 1;
+    }
+    if (f.state == CLOCK_STOPPED && was_state != CLOCK_STOPPED && playing)   /* Stop from outside */
+        playing = 0;
+    was_state = f.state;
+    req = play_req;
+    if (req) {
+        play_req = RQ_NONE;
+        if (req == RQ_START) {           /* PLAY: beat 1, on ours unless one comes from outside */
+            playing = 1;
+            ext_ran = 1;                 /* (asked to play: ours plays on if an outside one never comes) */
+            beat_first = 1;
+            if (!follow) {
+                int_run = 1;
+                int_acc = INT_PULSE;     /* Start, and its first pulse at once: beat 1 */
+                clock_out(0xFAu, now);
             }
-            left = (BEAT_UNITS - beat_acc + bpm - 1u) / bpm;   /* frames to the next beat */
-            if (left < m)
-                m = left;
-            beat_acc += bpm * m;
+        } else {
+            if (int_run)
+                clock_out(0xFCu, now);
+            int_run = 0;
+            playing = 0;
         }
-        kick_kit_render(&engine, &coefs[coefs_cur], mono + done, m);
-        done += m;
+        int_hold10 = 0;
+    }
+    if (f.state == CLOCK_RUNNING)
+        ext_ran = 1;
+    if (!playing || follow) {
+        int_run = 0;
+        int_hold10 = 0;
+    } else if (!int_run && !ext_ran && seen_start) {   /* a Start no pulse ever followed (a computer opening the
+                                                          * port): nothing to play on from */
+        playing = 0;
+    } else if (!int_run) {               /* the outside clock went (no Stop): ours plays on at the tempo it had */
+        uint32_t t10 = f.per > 0.0f ? (uint32_t)(6.0e8f / f.per + 0.5f) : 0u;
+        int_run = 1;
+        int_acc = 0;
+        int_hold10 = t10 >= 200u && t10 <= 6000u ? t10 : 0u;
+        int_hold_bpm = tempo;
+    }
+    if (int_hold10 && tempo != int_hold_bpm)
+        int_hold10 = 0;                  /* the tempo turned meanwhile: that, as asked */
+
+    while (done < n) {                   /* render up to each pulse, play it, render on */
+        uint32_t at = n;
+        if (int_run) {
+            uint32_t t10 = int_hold10 ? int_hold10 : (uint32_t)tempo * 10u;
+            uint32_t inc = t10 * 24u;
+            uint32_t st = int_acc >= INT_PULSE ? 0u : (INT_PULSE - int_acc + inc - 1u) / inc;
+            if (done + st < n)
+                at = done + st;
+            int_acc += (at - done) * inc;
+        } else if (playing && f.state == CLOCK_RUNNING && fired < MAX_PULSES) {
+            /* pulse ext_k on the loop's line: f.pulse at t0 + t0_frac, then f.per apart */
+            float d = (float)(int32_t)(f.t0 - now) + f.t0_frac + (float)(int32_t)(ext_k - f.pulse) * f.per;
+            if (d < -(float)LOCK_FAR * f.per) {   /* far behind: skip to the line, the pulses passing silently */
+                uint32_t k = f.pulse + (uint32_t)(int32_t)(((float)(int32_t)(now - f.t0) - f.t0_frac) * f.inv_per);
+                while ((int32_t)(k - ext_k) > 0) {
+                    ext_k++;
+                    on_pulse(0);
+                }
+                continue;
+            }
+            d *= 1.0f / TICKS_PER_FRAME;  /* in frames from the block's start */
+            if (d < (float)n)
+                at = d <= (float)done ? done : (uint32_t)(d + 0.5f);
+            if (at > n)
+                at = n;
+        }
+        if (at > done) {
+            kick_kit_render(&engine, &coefs[coefs_cur], mono + done, at - done);
+            done = at;
+        }
+        if (at < n) {                    /* a pulse here */
+            uint32_t heard = now + (uint32_t)((float)at * TICKS_PER_FRAME);
+            if (int_run) {
+                int_acc -= INT_PULSE;
+                clock_out(0xF8u, heard);
+            } else
+                ext_k++;
+            on_pulse(1);
+            fired++;
+        }
     }
     kick_master(&lim_env, mono, n);      /* the master: a limiter at -0.3 dBFS, then MASTER's volume */
     for (i = 0; i < n; i++) {
@@ -218,6 +376,56 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         else if (s < -1.0f)
             s = -1.0f;
         lr[2 * i] = lr[2 * i + 1] = (int32_t)(s * gain_now);
+    }
+}
+
+/* The tick (1 kHz, the timer interrupt, right after the USB poll): MIDI in, stamped (read here, not in the main loop,
+ * so the screen never holds it up). MIDI THRU, as a daisy chain: everything that comes in (notes, CC, clock, Start /
+ * Stop; not SysEx, the updater's) goes on at once to the other outs, never back where it came from: USB to Bluetooth,
+ * the TRS jack to USB and Bluetooth, Bluetooth to USB (and from a device's link to the computer's, and back).
+ * Incoming pulses are held back only while we play on our own clock (ours go out then: no double clock). Then what
+ * the audio interrupt sends, when it is heard. */
+#define STAMP_OFF ((int32_t)(120 * 24000))       /* 120 ms (the platform's own BLE_TIME_LATE_MS is 100), in ticks */
+void app_tick(void)
+{
+    uint32_t pkt, now = now24();
+    unsigned bpm;
+    int port;
+    while (plat_midi_in(&pkt, &port)) {
+        uint32_t st = (pkt >> 8) & 0xFFu, d1 = (pkt >> 16) & 0x7Fu, d2 = (pkt >> 24) & 0x7Fu, cin = pkt & 0xFu;
+        uint32_t from = plat_midi_in_from();
+        (void)port;
+        if (cin >= 2u && (cin < 4u || cin > 7u) && !(st == 0xF8u && !clock_ext && playing))
+            plat_midi_send(pkt & ~0xF0u, MIDI_TO & ~from);   /* (cable 0: the jack's come in as 1) */
+        if (st == 0xF8u || st == 0xFAu || st == 0xFBu || st == 0xFCu) {
+#ifdef PLAT_HOST
+            uint32_t stamp = now;
+#else
+            uint32_t stamp = plat_midi_in_t24();
+#endif
+            uint32_t read = now24();
+            int32_t age = (int32_t)(read - stamp);
+            /* A stamp more than STAMP_OFF from its reading is wrong, not late: Bluetooth's sender times are mapped
+             * onto ours by the platform, and one message seemingly sent earlier than any before moves that mapping
+             * for all that follow (seen on FMLarynx: 1.5 s). Such a message is taken when it was read: a beat a little
+             * less even at worst, never a clock lost */
+            if (age > STAMP_OFF || age < -STAMP_OFF)
+                stamp = read;
+            gk_midi_realtime(st, from, stamp);
+        } else if ((st & 0xF0u) == 0x90u && d2 && midiq_w - midiq_r < MIDIQ) {   /* a note: a kick at its pitch */
+            midiq[midiq_w % MIDIQ] = (int8_t)fold((int)d1 - ROOT_NOTE);         /* (any channel; not transposed) */
+            midiq_w++;
+        }
+    }
+    now = now24();                       /* (after the reads: their stamps may be later than the tick's start) */
+    clock_ext = (uint8_t)gk_clock(&bpm, now);
+    clock_bpm_x10 = (uint16_t)(bpm > 65535u ? 65535u : bpm);
+    while (outq_r != outq_w) {
+        uint32_t r = outq_r;
+        if ((int32_t)(now - outq[r % OUTQ].at) < 0)
+            break;
+        plat_midi_send(outq[r % OUTQ].pkt, MIDI_TO);
+        outq_r = r + 1u;
     }
 }
 
@@ -243,9 +451,20 @@ static struct {
     uint32_t wave_ms;                    /* the kick's length; 0: longer than the picture's second */
     float spec[SPEC_BINS];               /* the kick's spectrum, dB under its loudest bin */
     int band[KE_N];                      /* the band K2..K4 turn on each EQ page */
+    uint8_t link, link_row;              /* the connections page is up; its cursor */
+    uint8_t save_pending;                /* SAVE pressed with no key yet: on its release, the page's action */
+    uint32_t link_sig, link_ms;          /* what the page showed, and when (it is drawn again on a change) */
     uint32_t shown_kicks;
     uint8_t redraw;
 } ui;
+
+static uint32_t strlen_(const char *s)   /* (no libc on the device) */
+{
+    uint32_t n = 0;
+    while (s[n])
+        n++;
+    return n;
+}
 
 static void text_cat(char *d, const char *s)
 {
@@ -522,8 +741,135 @@ static void param_turn(int slot, int detents)
     ui.wave_dirty = 1;
 }
 
+/* ---- the connections page (SEL + REC), in the knobs' place: the Bluetooth MIDI devices found (lib/btdev: the scan
+ * while it is up; the one connected), then the USB port's role (DEVICE, to a computer, or HOST to a MIDI device such
+ * as another FM-1), as a list: SELECT moves the cursor, SAVE does what the row's action says, SEL + REC goes back.
+ * The clock and everything passed on go to all of them; a Start from any of them is followed. As FMLarynx's and
+ * Amenity's. */
+static const char *upper(const char *s)          /* a device's name as the screen's fonts have it: capitals */
+{
+    static char b[32];
+    uint32_t i;
+    for (i = 0; i < sizeof b - 1u && s[i]; i++)
+        b[i] = s[i] >= 'a' && s[i] <= 'z' ? (char)(s[i] - 32) : s[i];
+    b[i] = 0;
+    return b;
+}
+static int link_devrows(void) { return btdev_busy() || plat_ble_linked() ? 1 : btdev_count() ? btdev_count() : 1; }
+static int link_usb_row(void) { return link_devrows(); }
+static const char *link_action(void)
+{
+    if (ui.link_row >= link_usb_row())
+        return plat_usb_host_state() == USBH_OFF ? "HOST" : "DEVICE";
+    return btdev_busy() ? "LET GO" : plat_ble_linked() ? "" : btdev_count() ? "CONNECT" : "";
+}
+static void link_enter(void)
+{
+    if (ui.link_row >= link_usb_row()) {
+        plat_usb_host(plat_usb_host_state() == USBH_OFF);
+        return;
+    }
+    if (btdev_busy() || (btdev_count() && !plat_ble_linked())) {
+        int ev;
+        if (!btdev_busy())
+            btdev_choose(ui.link_row);
+        ev = btdev_save();
+        app_say(ev == BTDEV_CONNECTING ? "CONNECTING" : "BLUETOOTH",
+                ev == BTDEV_CONNECTING ? upper(btdev_name()) : btdev_word(ev));
+    }
+}
+static void link_line(int32_t y, int row, const char *label, const char *text, uint16_t c)
+{
+    int on = ui.link_row == row;
+    if (label)
+        cv_text(6, y + 2, &FONT_XS, label, C_GRAY);
+    if (on)
+        cv_text(34, y + 2, &FONT_XS, ">", C_HI);
+    cv_text(44, y + 2, &FONT_XS, text, on ? C_HI : c);
+}
+static void link_draw(void)                      /* the panel under the header: the page */
+{
+    char t[40], name[24];
+    int n = btdev_count(), u = plat_usb_host_state(), rows = link_devrows(), first, i;
+    int32_t y = 20;
+    cv_begin(240, 90, C_BLACK);
+    cv_rect(0, 0, 240, 1, C_LINE);
+    cv_text(6, 4, &FONT_XS, "CONNECTIONS", C_HI);
+    if (plat_ble_connected())
+        cv_text(234 - text_w(&FONT_XS, "COMPUTER: BT"), 4, &FONT_XS, "COMPUTER: BT", C_GRAY);
+    first = ui.link_row < rows ? (int)ui.link_row - 1 : rows - 3;   /* three device rows at most, the cursor's in view */
+    first = first > rows - 3 ? rows - 3 : first;
+    first = first < 0 ? 0 : first;
+    if (btdev_busy()) {
+        t[0] = 0;
+        text_cat(t, upper(btdev_name()));
+        text_cat(t, btdev_ready() ? "  CONNECTED" : "  CONNECTING");
+        t[26] = 0;
+        link_line(y, 0, "BT", t, btdev_ready() ? C_HI : C_GRAY);
+        y += 14;
+    } else if (plat_ble_linked()) {              /* the other side connected to us (its name is not known here) */
+        link_line(y, 0, "BT", "CONNECTED", C_HI);
+        y += 14;
+    } else if (!n) {
+        link_line(y, 0, "BT", "LOOKING...", C_GRAY);
+        y += 14;
+    } else
+        for (i = first; i < first + 3 && i < n; i++, y += 14)
+            if (btdev_found(i, name, 0))
+                link_line(y, i, i == first ? "BT" : 0, upper(name), C_GRAY);
+    if (u == USBH_OFF)
+        link_line(y, rows, "USB", "DEVICE", C_GRAY);
+    else if (u == USBH_CONNECTED) {
+        const char *dev = upper(plat_usb_host_name());
+        t[0] = 0;
+        text_cat(t, "HOST TO ");
+        text_cat(t, dev[0] ? dev : "A DEVICE");
+        t[24] = 0;
+        link_line(y, rows, "USB", t, C_HI);
+    } else
+        link_line(y, rows, "USB", "HOST - LOOKING", C_GRAY);
+    if (link_action()[0]) {                      /* what SAVE does on the row: "SAVE=CONNECT" */
+        t[0] = 0;
+        text_cat(t, "SAVE=");
+        text_cat(t, link_action());
+        cv_text(6, 78, &FONT_XS, t, C_AMB);
+    }
+    cv_text(234 - text_w(&FONT_XS, "SEL+REC=BACK"), 78, &FONT_XS, "SEL+REC=BACK", C_DIM);
+    cv_blit(0, 30);
+}
+static void link_poll(void)                      /* every frame: the scan, what happened; the page drawn on a change */
+{
+    uint32_t sig, now = plat_ms();
+    int ev;
+    btdev_page(ui.link);
+    while ((ev = btdev_event()) != BTDEV_NONE)
+        app_say("BLUETOOTH", btdev_word(ev));
+    switch (plat_usb_host_msg()) {
+    case USBH_MSG_ON: app_say("USB", "HOST"); break;
+    case USBH_MSG_OFF: app_say("USB", "DEVICE"); break;
+    case USBH_MSG_MIDI: app_say("USB HOST TO", plat_usb_host_name()[0] ? upper(plat_usb_host_name()) : "A DEVICE"); break;
+    case USBH_MSG_NOMIDI: app_say("USB", "NOT A MIDI DEVICE"); break;
+    case USBH_MSG_LOW: app_say("USB", "NEEDS POWER"); break;
+    case USBH_MSG_LOST: app_say("USB", "DEVICE LOST"); break;
+    default: break;
+    }
+    if (ui.link_row > link_usb_row())
+        ui.link_row = (uint8_t)link_usb_row();
+    if (!ui.link)
+        return;
+    sig = (uint32_t)btdev_count() | (uint32_t)btdev_pick() << 4 | (uint32_t)btdev_busy() << 8 |
+          (uint32_t)btdev_ready() << 9 | (uint32_t)plat_ble_connected() << 10 | (uint32_t)plat_usb_host_state() << 11 |
+          (uint32_t)plat_ble_linked() << 13 | (uint32_t)ui.link_row << 14 | 1u << 31;
+    if (sig != ui.link_sig || now - ui.link_ms >= 500u) {   /* (the names found may change: twice a second) */
+        ui.link_sig = sig;
+        ui.link_ms = now;
+        ui.redraw = 1;
+    }
+}
+
 static void page_to(int p)
 {
+    ui.link = 0;                         /* (a page: the connections page goes) */
     if (p != ui.page)
         ui.wave_dirty = 1;               /* (a page with a spectrum: it is made with the picture) */
     ui.page = p;
@@ -593,16 +939,23 @@ static void input(void)
                 if (slot >= 0)
                     preset_load(slot);
             } else
-                key_kick(53 + (int)k - ROOT_NOTE);
+                key_kick(53 + (int)k - ROOT_NOTE + xpose);   /* (transposed, as PLAY) */
         }
     if ((btn >> B_PLAY & 1u) && !(ui.btn >> B_PLAY & 1u)) {
-        if (playing)
-            playing = 0;
-        else {
-            play_start = 1;
-            playing = 1;
+        play_req = playing ? RQ_STOP : RQ_START;   /* (the audio interrupt starts or stops the beat) */
+        app_say("PLAY", play_req == RQ_START ? "ON" : "STOP");
+    }
+    {                                    /* SAVE tapped (no key while held) on the connections page: its row's action */
+        uint32_t down = btn & ~ui.btn, up = ui.btn & ~btn;
+        if (down >> B_SAVE & 1u)
+            ui.save_pending = 1;
+        if (keys & ~ui.keys)
+            ui.save_pending = 0;         /* (SAVE + a key: a preset stored) */
+        if ((up >> B_SAVE & 1u) && ui.save_pending) {
+            ui.save_pending = 0;
+            if (ui.link)
+                link_enter();
         }
-        app_say("PLAY", playing ? "ON" : "STOP");
     }
     if ((btn >> B_ARP & 1u) && !(ui.btn >> B_ARP & 1u))
         dice_throw(row);
@@ -615,7 +968,12 @@ static void input(void)
                 p = ui.page == PG_D1 ? PG_D2 : PG_D1;
             else if (k == B_ENV)                 /* PNCH; again: P.EQ, and back */
                 p = ui.page == PG_PUNCH ? PG_PEQ : PG_PUNCH;
-            else if (k == B_REC)                 /* PERF; again: ENV, and back */
+            else if (k == B_REC && (btn >> B_SEL & 1u)) {   /* SEL + REC: the connections page, or back */
+                ui.link = !ui.link;
+                ui.link_sig = 0;
+                ui.redraw = 1;
+                app_say(ui.link ? "CONNECTIONS" : "PAGE", ui.link ? "" : PAGES[ui.page].name);
+            } else if (k == B_REC)               /* PERF; again: ENV, and back */
                 p = ui.page == PG_PERF ? PG_ENV : PG_PERF;
             else if (k == B_OCTDN)
                 p = PG_SUB;
@@ -633,13 +991,26 @@ static void input(void)
     for (k = 0; k < NE; k++) {
         if ((e = plat_enc((int)k)) == 0)
             continue;
-        if (k == EN_SELECT) {
+        if (k == EN_SELECT && ui.link) { /* the connections page: its cursor */
+            int r = (int)ui.link_row + (e > 0 ? 1 : -1), last = link_usb_row();
+            ui.link_row = (uint8_t)(r < 0 ? 0 : r > last ? last : r);
+            if (ui.link_row < link_usb_row() && !btdev_busy() && btdev_count())
+                btdev_choose(ui.link_row);
+            ui.redraw = 1;
+        } else if (k == EN_SELECT) {
             page_to(((ui.page + (e > 0 ? 1 : -1)) % NPAGES + NPAGES) % NPAGES);   /* round: POST, 909, EQ .. */
         } else if (k == EN_PRESET) {
             char t[8];
             tempo = clamp(tempo + e, TEMPO_MIN, TEMPO_MAX);
             int_text(tempo, t);
             app_say("TEMPO", t);
+        } else if (k == EN_ALGO) {       /* TRANSPOSE: PLAY's kick and the keys, -12 .. +12 semitones */
+            char t[8];
+            xpose = (int8_t)clamp(xpose + (e > 0 ? 1 : -1), -12, 12);
+            t[0] = xpose > 0 ? '+' : xpose < 0 ? '-' : ' ';
+            int_text(xpose < 0 ? -xpose : xpose, t + 1);
+            text_cat(t, "ST");
+            app_say("TRANSPOSE", t);
         } else if (k >= EN_K1 && k <= EN_K4) {
             param_turn(row * 4 + (int)(k - EN_K1), e);
         }
@@ -881,12 +1252,28 @@ static void draw(void)
                 text_cat(t, "*");
             cv_text(x + 10, 9, &FONT_XS, t, C_GRAY);
         }
-        int_text(tempo, t);
+        if (clock_ext) {                 /* an outside clock leads: its tempo, to 0.1 BPM */
+            t[0] = 0;
+            text_cat(t, "EXT ");
+            int_text(clock_bpm_x10 / 10u, t + 4);
+            text_cat(t, ".");
+            int_text(clock_bpm_x10 % 10u, t + strlen_(t));
+        } else
+            int_text(tempo, t);
         text_cat(t, " BPM");
-        cv_text(232 - text_w(&FONT_XS, t), 9, &FONT_XS, t, playing ? C_HI : C_GRAY);
+        x = 232 - text_w(&FONT_XS, t);
+        cv_text(x, 9, &FONT_XS, t, playing ? C_HI : C_GRAY);
+        if (xpose) {                     /* TRANSPOSE, left of the tempo */
+            t[0] = xpose > 0 ? '+' : '-';
+            int_text(xpose < 0 ? -xpose : xpose, t + 1);
+            cv_text(x - 8 - text_w(&FONT_XS, t), 9, &FONT_XS, t, C_AMB);
+        }
     }
     cv_blit(0, 0);
-    /* the page and its parameters: two rows of four, the row the knobs turn lit */
+    /* the page and its parameters: two rows of four, the row the knobs turn lit (or the connections page) */
+    if (ui.link)
+        link_draw();
+    else {
     cv_begin(240, 90, C_BLACK);
     cv_rect(0, 0, 240, 1, C_LINE);
     {   /* the tabs: the pages of this page's layer, this one lit and underlined, each in its colour; the other
@@ -933,6 +1320,7 @@ static void draw(void)
         cv_text(x + 4, y + 15, &FONT_XS, t, focus ? C_BLACK : lit ? C_HI : C_DIM);
     }
     cv_blit(0, 30);
+    }
     /* the kick (its first second, its spectrum) or the filters' curve; and its pitch */
     cv_begin(240, WAVE_H + 40, C_BLACK);
     cv_rect(0, 0, 240, 1, C_LINE);
@@ -1033,7 +1421,7 @@ static void draw(void)
         }
         break;
     }
-    note_text(0, t);
+    note_text(xpose, t);                         /* the root PLAY plays (TRANSPOSE in it) */
     cv_text(8, WAVE_H + 18, &FONT_XS, "ROOT", C_GRAY);
     cv_text(44, WAVE_H + 18, &FONT_XS, t, C_HI);
     if (pg->view == V_PUNCH) {           /* the picture's span, not the kick's length */
@@ -1077,6 +1465,18 @@ void app_splash(void)
         }
         cv_blit(0, band * 120u);
     }
+}
+
+#define SPLASH_MS 2500u                  /* the splash, from power-on */
+void app_boot(void)
+{
+#ifndef PLAT_HOST
+    while (plat_ms() < SPLASH_MS) {      /* the platform is up: Bluetooth polled, the watchdog fed, meanwhile */
+        fm1_wdt_feed();
+        plat_yield();
+        fm1_delay_ms(10);
+    }
+#endif
 }
 
 void app_ui_init(void)
@@ -1125,6 +1525,7 @@ void app_frame(void)
     input();
     speak();
     resample_check(now);
+    link_poll();
     if (ui.wave_dirty && now - ui.wave_at >= 80u) {
         ui.wave_dirty = 0;
         ui.wave_at = now;
@@ -1166,6 +1567,14 @@ int app_expect(const char *what, int *got)
         *got = playing;
     else if (!strcmp(what, "tempo"))
         *got = tempo;
+    else if (!strcmp(what, "link"))      /* the connections page is up */
+        *got = ui.link;
+    else if (!strcmp(what, "xpose"))
+        *got = xpose;
+    else if (!strcmp(what, "clocks_out"))   /* clock pulses sent; an outside clock followed */
+        *got = (int)clocks_out;
+    else if (!strcmp(what, "ext"))
+        *got = clock_ext;
     else if (!strcmp(what, "kicks"))
         *got = (int)kicks;
     else if (!strcmp(what, "semis"))

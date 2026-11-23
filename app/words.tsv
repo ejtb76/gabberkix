@@ -44,3 +44,16 @@ TAIL	tail
 >BODY	body from
 >MID	middle from
 >TAIL	tail from
+CONNECTIONS	connections
+CONNECTING	connecting
+LOOKING...	looking
+LET GO	let go
+HOST	host
+DEVICE	device
+SAVE=CONNECT	save: connect
+SAVE=LET GO	save: let go
+SAVE=HOST	save: host
+SAVE=DEVICE	save: device
+SEL+REC=BACK	select and rec: back
+TRANSPOSE	transpose
+EXT	external clock
