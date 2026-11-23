@@ -279,7 +279,8 @@ int main(void)
         for (i = 0; i < n; i++)
             if (fabs(buf[i]) > pk)
                 pk = fabs(buf[i]);
-        snprintf(t, sizeof t, "the master limiter: a kick 20 dB over comes out at %.2f dBFS (%.7f)", 20.0 * log10(pk), pk);
+        snprintf(t, sizeof t, "the master limiter: a kick 20 dB over comes out at %.2f dBFS (%.7f)", 20.0 * log10(pk),
+                 pk);
         check(pk <= 0.9661, t);
     }
 
@@ -374,7 +375,8 @@ int main(void)
         for (i = 0; i < 16384u; i++)
             if (fabs(all[i] - mid[i]) > d)
                 d = fabs(all[i] - mid[i]);
-        snprintf(t, sizeof t, "group A, HARD at PUSH 0: the midbody (peak %.2f) passes untouched", peak_of(mid, 16384u));
+        snprintf(t, sizeof t, "group A, HARD at PUSH 0: the midbody (peak %.2f) passes untouched",
+                 peak_of(mid, 16384u));
         check(d == 0.0 && peak_of(mid, 16384u) < 1.0, t);
         cr0 = crest(all, 8192u);
         p.v[KP_A_PUSH] = 24;
@@ -487,7 +489,8 @@ int main(void)
         p.v[KP_NOISE] = 30;
         kick_cook(&p, &c);
         nb = kick_render_one(&c, 0, yb, N);
-        snprintf(t, sizeof t, "NOISE 30 %%: %.0f dB more at 5 kHz in the body", dft_db(yb, 8820u, 5000.0) - dft_db(ya, 8820u,
+        snprintf(t, sizeof t, "NOISE 30 %%: %.0f dB more at 5 kHz in the body",
+                 dft_db(yb, 8820u, 5000.0) - dft_db(ya, 8820u,
                  5000.0));
         check(dft_db(yb, 8820u, 5000.0) - dft_db(ya, 8820u, 5000.0) > 12.0, t);
         /* PERF's three peaks: 18 dB at 1.5 kHz (and at 300 Hz and 6 kHz), TOTAL a wire */
@@ -545,7 +548,7 @@ int main(void)
         }
     }
 
-    /* BOUNCE: a preset's kick into a buffer, played as the midbody's source with the chain blank, sounds as the
+    /* RESAMPLE: a preset's kick into a buffer, played as the midbody's source with the chain blank, sounds as the
        preset did (the int16 buffer its only difference) */
     {
         static int16_t smp[KICK_SRC_MAX];
@@ -557,7 +560,7 @@ int main(void)
         p.v[KP_EQ1 + KB_GAIN] = 12;      /* a preset with some colour */
         kick_cook(&p, &c);
         no = kick_render_one(&c, 0, orig, KICK_SRC_MAX);
-        ns = kick_bounce(&p, smp, KICK_SRC_MAX);
+        ns = kick_resample(&p, smp, KICK_SRC_MAX);
         kick_set_source(smp, ns);
         p.v[KP_SRC] = 1;
         kick_params_fresh(&p);
@@ -567,14 +570,16 @@ int main(void)
             d += (double)(bnc[j] - orig[j]) * (bnc[j] - orig[j]);
             e += (double)orig[j] * orig[j];
         }
-        snprintf(t, sizeof t, "BOUNCE: the preset's kick played back as the source, the chain blank: %.0f dB from the "
+        snprintf(t, sizeof t, "RESAMPLE: the preset's kick played back as the source, the chain blank: %.0f dB from "
+                 "the "
                  "preset (%u ms, %u ms)", 10.0 * log10(d / e + 1e-30), no * 1000u / KICK_RATE, nb * 1000u / KICK_RATE);
         check(d / e < 1e-5, t);
         /* PITCH +12: twice as fast, so half as long */
         p.v[KP_SRC_PITCH] = 12;
         kick_cook(&p, &c);
         nb = kick_render_one(&c, 0, bnc, KICK_SRC_MAX);
-        snprintf(t, sizeof t, "BOUNCE PITCH +12: %u ms (the bounce %u)", nb * 1000u / KICK_RATE, ns * 1000u / KICK_RATE);
+        snprintf(t, sizeof t, "RESAMPLE PITCH +12: %u ms (the resample %u)", nb * 1000u / KICK_RATE,
+                 ns * 1000u / KICK_RATE);
         check(nb < ns * 6u / 10u, t);
         kick_set_source(0, 0);
     }
@@ -649,7 +654,9 @@ int main(void)
                     tame++;
         }
         snprintf(t, sizeof t, "300 throws of the dice: %.1f .. %.1f dBFS a beat (a new kick: -11), none under -14 or "
-                 "over -8 (%d, %d), every band 9 dB or more, the 909, the punch and the sub in their ranges, the root's body kept, EQ2 not shrill, POST, TOTAL and PERF a new kick's (%d not); %.2f throws a kick, %d at most",
+                 "over -8 (%d, %d), every band 9 dB or more, the 909, the punch and the sub in their ranges, the "
+                 "root's body kept, EQ2 not shrill, POST, TOTAL and PERF a new kick's (%d not); %.2f throws a kick, "
+                 "%d at most",
                  lo, hi, soft, loud, tame, throws / 300.0, most);
         check(!soft && !loud && !tame, t);
         snprintf(t, sizeof t, "the dice's DECAY, 200..900 ms evenly: %ld ms on average (550), %d of 300 under 550 ms",

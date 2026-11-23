@@ -9,7 +9,8 @@
  *
  * The panel:
  *   SELECT       the page: 909, EQ, D1, EQ2, D2, POST (the midbody), PNCH, P.EQ (the punch), GRP.A, and round
- *   HOME         909 (again: SRC, and back)      EDIT  EQ (again: the next band)            LFO  EQ2 (again: the next band)
+ *   HOME         909 (again: SRC, and back)          EDIT  EQ (again: the next band)
+ *   LFO          EQ2 (again: the next band)
  *   FX           D1 (again: D2, and back)                            GLO  POST (again: the other band)
  *   ENV          PNCH (again: P.EQ, and back)                        SEQ  GRP.A (again: its next band)
  *   OCT-         SUB                                                 OCT+ TOTAL (again: its next band)
@@ -67,7 +68,8 @@ static const char *const LAYER_SHORT[L_N] = {"M", "P", "A", "S", "T", "F"};   /*
 static const page_t PAGES[] = {
     [PG_SRC] = {"SRC", {KP_SRC, KP_SRC_PITCH, KP_SRC_START, KP_SRC_LEVEL, -1, -1, -1, -1}, V_WAVE, -1, KT_ALL, B_HOME,
                 COLOURS(150, 150, 160, 220, 220, 230)},
-    [PG_909] = {"909", {KP_SWEEP, KP_SWEEP_T, KP_HOLD, KP_DECAY, KP_TUNE, KP_CLICK, KP_LEVEL, KP_NOISE}, V_WAVE, -1, KT_ALL,
+    [PG_909] = {"909", {KP_SWEEP, KP_SWEEP_T, KP_HOLD, KP_DECAY, KP_TUNE, KP_CLICK, KP_LEVEL, KP_NOISE}, V_WAVE, -1,
+                KT_ALL,
                 B_HOME, COLOURS(232, 76, 60, 255, 132, 112)},
     [PG_EQ] = {"EQ", EQ_KNOBS, V_CURVE, KE_EQ1, KT_D1, B_EDIT, COLOURS(60, 180, 235, 150, 225, 255)},
     [PG_D1] = {"D1", DIST_KNOBS(KP_D1), V_SPEC, -1, KT_D1, B_FX, COLOURS(214, 70, 200, 255, 140, 240)},
@@ -85,7 +87,8 @@ static const page_t PAGES[] = {
                 B_OCTUP, COLOURS(235, 235, 235, 255, 255, 255)},
     [PG_ENV] = {"ENV", {KP_E_LEVEL, KP_E_LEVEL + 1, KP_E_LEVEL + 2, KP_E_LEVEL + 3, KP_E_TIME, KP_E_TIME + 1,
                 KP_E_TIME + 2, -1}, V_ENV, -1, KT_ALL, B_REC, COLOURS(160, 220, 40, 205, 250, 120)},
-    [PG_PERF] = {"PERF", {KP_PF_AMOUNT, KP_PF_FREQ, KP_PF_FREQ2, KP_PF_FREQ3, KP_PF_DRIVE, KP_PF_LENGTH, -1, -1}, V_PERF,
+    [PG_PERF] = {"PERF", {KP_PF_AMOUNT, KP_PF_FREQ, KP_PF_FREQ2, KP_PF_FREQ3, KP_PF_DRIVE, KP_PF_LENGTH, -1, -1},
+                 V_PERF,
                  -1, KT_ALL, B_REC,
                  COLOURS(255, 70, 20, 255, 150, 100)},
 };
@@ -102,11 +105,11 @@ static uint32_t dice_seed, dice_throws;
 static int dice_db;                      /* the last throw's loudness, dBFS (the host's checks) */
 static kick_coefs_t coefs[2];            /* cooked from params: the main loop writes one, then flips */
 static kick_coefs_t src_coefs[2];        /* the punch's source, when it is a preset (its midbody) */
-static int16_t bounce_buf[KICK_SRC_MAX] PLAT_POOL;   /* BOUNCE: the source preset's kick, rendered (88 KB) */
-static int bounce_slot = -1;             /* the slot in it; -1 none */
-static uint32_t bounce_saves = ~0u;      /* the saves when it was rendered (a save may change that slot) */
-static uint32_t bounce_at;               /* SOURCE last turned: rendered once the knob rests */
-static volatile uint8_t muted;           /* the render silent (while the bounce is rendered)  */
+static int16_t resample_buf[KICK_SRC_MAX] PLAT_POOL;   /* RESAMPLE: the source preset's kick, rendered (88 KB) */
+static int resample_slot = -1;           /* the slot in it; -1 none */
+static uint32_t resample_saves = ~0u;    /* the saves when it was rendered (a save may change that slot) */
+static uint32_t resample_at;             /* SOURCE last turned: rendered once the knob rests */
+static volatile uint8_t muted;           /* the render silent (while the resample is rendered)  */
 static volatile uint8_t coefs_cur;
 static kick_kit_t engine;                /* the audio interrupt's */
 
@@ -173,7 +176,7 @@ static float lim_env;                    /* the master limiter's */
 
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
-    if (muted) {                         /* (a bounce being rendered) */
+    if (muted) {                         /* (a resample being rendered) */
         uint32_t i;
         for (i = 0; i < 2u * n; i++)
             lr[i] = 0;
@@ -500,14 +503,14 @@ static void param_turn(int slot, int detents)
         }
         if (v == params.v[i])
             return;
-        if (v) {                         /* a new source: the chain blank, so the bounce sounds as the preset did */
+        if (v) {                         /* a new source: the chain blank, so the resample sounds as the preset did */
             params_undo = params;
             has_undo = 1;
             params.v[i] = (int16_t)v;
             kick_params_fresh(&params);
         } else
             params.v[i] = 0;
-        bounce_at = plat_ms();
+        resample_at = plat_ms();
     } else
         params.v[i] = (int16_t)kick_param_step(i, params.v[i], detents);
     preset_edited = 1;
@@ -646,7 +649,8 @@ static void input(void)
     ui.keys = keys;
     ui.btn = btn;
     {
-        uint32_t lit = (playing ? 1u << B_PLAY : 0u) | (btn & (1u << B_SEL | 1u << B_SAVE)) | 1u << PAGES[ui.page].button;
+        uint32_t lit = (playing ? 1u << B_PLAY : 0u) | (btn & (1u << B_SEL | 1u << B_SAVE)) |
+                       1u << PAGES[ui.page].button;
         if (btn & (1u << B_SEL | 1u << B_SAVE)) {   /* SEL or SAVE held: the presets on the white keys */
             uint32_t dim = 0, bright = 0;
             int s2;
@@ -1078,37 +1082,37 @@ void app_splash(void)
 void app_ui_init(void)
 {
     lcd_fill(0, 0, 240, 240, C_BLACK);
-    ui.page = PG_909;                    /* the 909 first (SRC is before it, for a bounce) */
+    ui.page = PG_909;                    /* the 909 first (SRC is before it, for a resample) */
     ui.focus = -1;
     ui.wave_dirty = 1;
     ui.redraw = 1;
 }
 
-/* BOUNCE: the source preset's kick into the buffer, when it is not there yet (another slot, or saved again), once
+/* RESAMPLE: the source preset's kick into the buffer, when it is not there yet (another slot, or saved again), once
  * SOURCE has rested a moment; silent meanwhile */
-static void bounce_check(uint32_t now)
+static void resample_check(uint32_t now)
 {
     int src = params.v[KP_SRC] - 1;
     kick_params_t sp;
     if (src < 0 || !preset_params(src, &sp)) {
-        if (bounce_slot >= 0) {
+        if (resample_slot >= 0) {
             kick_set_source(0, 0);
-            bounce_slot = -1;
+            resample_slot = -1;
             cook();
         }
         return;
     }
-    if (src == bounce_slot && bounce_saves == preset_saves)
+    if (src == resample_slot && resample_saves == preset_saves)
         return;
-    if (now - bounce_at < 300u)
+    if (now - resample_at < 300u)
         return;
-    busy_draw("BOUNCE");
+    busy_draw("RESAMPLE");
     muted = 1;
     kick_set_source(0, 0);
     cook();
-    kick_set_source(bounce_buf, kick_bounce(&sp, bounce_buf, KICK_SRC_MAX));
-    bounce_slot = src;
-    bounce_saves = preset_saves;
+    kick_set_source(resample_buf, kick_resample(&sp, resample_buf, KICK_SRC_MAX));
+    resample_slot = src;
+    resample_saves = preset_saves;
     cook();
     muted = 0;
     ui.wave_dirty = 1;
@@ -1120,7 +1124,7 @@ void app_frame(void)
     uint32_t now = plat_ms();
     input();
     speak();
-    bounce_check(now);
+    resample_check(now);
     if (ui.wave_dirty && now - ui.wave_at >= 80u) {
         ui.wave_dirty = 0;
         ui.wave_at = now;
@@ -1178,8 +1182,8 @@ int app_expect(const char *what, int *got)
         *got = (int)preset_saves;
     else if (!strcmp(what, "used"))
         *got = presets.used;
-    else if (!strcmp(what, "bounce"))    /* the slot rendered as the source, 1..16; 0 none */
-        *got = bounce_slot + 1;
+    else if (!strcmp(what, "resample"))    /* the slot rendered as the source, 1..16; 0 none */
+        *got = resample_slot + 1;
     else if (!strcmp(what, "zoom"))      /* the 909 picture's zoom, x10 */
         *got = ui.zoom10;
     else if (!strcmp(what, "throws"))    /* the dice: how often thrown; the last kick's loudness, dBFS */

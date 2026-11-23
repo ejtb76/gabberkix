@@ -24,9 +24,10 @@ static const char *const DIST_T[KDT_N] = {"OFF", "TANH", "HARD", "GABBER"};
 static const char *const SRC_T[KPS_N] = {"OFF", "SELF", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8",
                                          "P9", "P10", "P11", "P12", "P13", "P14", "P15", "P16"};
 static const char *const CLIP_T[KCL_N] = {"OFF", "HARD", "SOFT"};
-static const char *const SOURCE_T[17] = {"909", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11", "P12",
+static const char *const SOURCE_T[17] = {"909", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11",
+                                         "P12",
                                          "P13", "P14", "P15", "P16"};
-static const int16_t *src_buf;          /* BOUNCE's sample (kick_set_source) */
+static const int16_t *src_buf;          /* RESAMPLE's sample (kick_set_source) */
 static uint32_t src_len;
 
 void kick_set_source(const int16_t *buf, uint32_t len)
@@ -117,7 +118,7 @@ static const kick_param_info_t INFO[KP_COUNT] = {
     [KP_E_TIME + 2] = {">TAIL", 20, 2000, 300, KU_MS, 0, 0},
     [KP_PF_FREQ2] = {"PEAK2", 60, 10000, 1000, KU_HZ, 0, 0},
     [KP_PF_FREQ3] = {"PEAK3", 60, 10000, 3000, KU_HZ, 0, 0},
-    /* BOUNCE: the 909 on a new kick */
+    /* RESAMPLE: the 909 on a new kick */
     [KP_SRC] = {"SOURCE", 0, 16, 0, KU_LIST, 1, SOURCE_T},
     [KP_SRC_PITCH] = {"PITCH", -24, 24, 0, KU_ST, 1, 0},
     [KP_SRC_START] = {"START", 0, 100, 0, KU_MS, 1, 0},
@@ -355,7 +356,7 @@ void kick_cook(const kick_params_t *p, kick_coefs_t *c)
     c->decay_k = decay_per_sample((float)v[KP_DECAY] * (1.0f + (float)v[KP_PF_LENGTH] * 0.01f), 60.0f);   /* PERF */
     c->click = (float)v[KP_CLICK] * 0.006f;   /* 100 % is a burst at 0.6 */
     c->level = fm_db2lin((float)v[KP_LEVEL]);
-    c->smp = v[KP_SRC] && src_buf && src_len > 1u ? src_buf : 0;   /* BOUNCE: a sample, or the 909 */
+    c->smp = v[KP_SRC] && src_buf && src_len > 1u ? src_buf : 0;   /* RESAMPLE: a sample, or the 909 */
     c->smp_len = src_len;
     c->smp_start = (uint32_t)((float)v[KP_SRC_START] * MS);
     c->smp_ratio = fm_exp2f((float)(v[KP_SRC_PITCH] + v[KP_TUNE]) / 12.0f);
@@ -468,7 +469,8 @@ static float svf_db(const kick_svf_t *s, float t)   /* t = tan(pi hz / rate) */
 
 static const kick_svf_t *eq_bands(const kick_coefs_t *c, int eq)
 {
-    return eq == KE_EQ1 ? c->eq1 : eq == KE_EQ2 ? c->eq2 : eq == KE_POST ? c->post : eq == KE_PEQ ? c->peq : eq == KE_AEQ ? c->aeq : c->teq;
+    return eq == KE_EQ1 ? c->eq1 : eq == KE_EQ2 ? c->eq2 : eq == KE_POST ? c->post : eq == KE_PEQ ? c->peq
+           : eq == KE_AEQ ? c->aeq : c->teq;
 }
 
 float kick_band_db(const kick_coefs_t *c, int eq, int band, float hz)
@@ -559,7 +561,7 @@ static void voice_start(kick_voice_t *v, const kick_coefs_t *c, int semis)
     v->noise = 0x12345678u;              /* the same click every time: a kick is a kick */
     v->noise2 = 0x9E3779B9u;             /* (and the same body noise) */
     v->body_noise = c->noise;
-    v->smp = c->smp;                     /* BOUNCE: the sample from START, at its speed (the sweep on top) */
+    v->smp = c->smp;                     /* RESAMPLE: the sample from START, at its speed (the sweep on top) */
     if (v->smp) {
         v->smp_len = c->smp_len;
         v->pos = (float)c->smp_start;
@@ -595,7 +597,7 @@ static void voice_render(kick_voice_t *v, float *out, uint32_t n)
         float s, nz;
         float inc = v->inc0 + v->inc_sweep * v->sweep;
         v->sweep *= v->sweep_k;
-        if (v->smp) {                    /* BOUNCE: the sample, read between its samples */
+        if (v->smp) {                    /* RESAMPLE: the sample, read between its samples */
             uint32_t k = (uint32_t)v->pos;
             float f = v->pos - (float)k, a, b;
             if (k + 1u >= v->smp_len) {
@@ -1131,8 +1133,8 @@ int kick_randomize(kick_params_t *p, uint32_t *seed, float *best_db)
     return tries > RND_TRIES ? RND_TRIES : tries;
 }
 
-/* ------------------------------------------------------------- BOUNCE --- */
-uint32_t kick_bounce(const kick_params_t *p, int16_t *buf, uint32_t max)
+/* ------------------------------------------------------------- RESAMPLE --- */
+uint32_t kick_resample(const kick_params_t *p, int16_t *buf, uint32_t max)
 {
     static kick_kit_t k;
     static float blk[256];

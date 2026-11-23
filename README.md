@@ -6,7 +6,7 @@ attack and a sub for the low end, pressed into one kick by groups driven hard in
 > **Status: phase 6 of 6.** The three layers are in: the midbody (a synthesized 909 through two rounds of EQ and
 > distortion), the punch (the hard tick at the start of a kick), pressed together in group A's clipper, and the sub
 > (group A's lows, split off), both into TOTAL's clipper; played on every beat or pitched from the keys and MIDI, with
-> sixteen presets, a randomizer, NOISE, PERF, ENV and BOUNCE (`kick-firmware-instructions.md`; DOUBLE, a doubled
+> sixteen presets, a randomizer, NOISE, PERF, ENV and RESAMPLE (`kick-firmware-instructions.md`; DOUBLE, a doubled
 > punch, left out: the punch and the clippers make hard transients already).
 
 Built on [fm1-base](https://github.com/charlesvestal/fm1-base) and felucca-bsp, from Felucca by Leo Kuroshita
@@ -15,7 +15,7 @@ Built on [fm1-base](https://github.com/charlesvestal/fm1-base) and felucca-bsp, 
 ## The sound so far
 
 ```
-midbody: 909 or a preset's kick (BOUNCE) -> EQ (4 peaks) -> DIST1 -> EQ2 (4 peaks) -> DIST2 -> POST (2 peaks) --+
+midbody: 909 or a preset's kick (RESAMPLE) -> EQ (4 peaks) -> DIST1 -> EQ2 (4 peaks) -> DIST2 -> POST (2 peaks) --+
 punch:   a kick (this one, or a preset) -> GATE -> P.EQ (4 peaks) -> DRIVE -> LEVEL -+-> GROUP A: EQ -> CLIP -> OUT
 GROUP A -+-> highpass --------------------------------+
          +-> lowpass -> SUB (envelope, drive, gain) --+-> PERF -> TOTAL: EQ -> CLIP -> OUT -> ENV -> limiter
@@ -50,14 +50,14 @@ leaves the EQs more to do.
   S.DRV a soft saturation.
 - **TOTAL**: group A's highs and the sub together: an EQ of four peaks, then a clipper (T.PUSH, T.CLIP HARD, SOFT or
   OFF, T.OUT), where pushing the sub over full scale glues it to the rest.
-- **SRC**, BOUNCE: the midbody's source, the 909 or a saved preset's whole kick (P1–P16: the keys that hold one;
+- **SRC**, RESAMPLE: the midbody's source, the 909 or a saved preset's whole kick (P1–P16: the keys that hold one;
   with none saved yet it stays on the 909). The preset is rendered once into a buffer (up to a second; again when it
   is saved anew, and on loading a preset that uses one) and played as a sample, so the chain goes over a finished kick
-  again: bounce it, add more effects, repeat. Choosing a preset blanks the chain (no distortion, EQs flat, no punch,
+  again: resample it, add more effects, repeat. Choosing a preset blanks the chain (no distortion, EQs flat, no punch,
   the groups and the sub wires, the 909's envelope wide open), so you hear the preset as it was and build from there;
   SEL + ARP takes that back. PITCH plays the sample up or down (as a sampler: up is shorter), START leaves its first
   milliseconds out, S.LEVEL; the 909 page still shapes it (HOLD and DECAY its level, SWEEP a pitch dive, CLICK and
-  NOISE on top), the keys and MIDI play it pitched. One level: a preset that itself bounces another plays with the 909
+  NOISE on top), the keys and MIDI play it pitched. One level: a preset that itself resamples another plays with the 909
   as its source. Presets stay parameters alone: the sample is rendered again from them.
 - **NOISE** (on the 909 page): noise in the 909, at its level, so it lives in the body and is silent between kicks:
   grit for the distortions, shaped by the EQs before them. 0 %: none (a new kick's).

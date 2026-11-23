@@ -1,4 +1,4 @@
-# BOUNCE: SRC (HOME on the 909 page) chooses the midbody's source: the 909, or a key that holds a preset (empty ones skipped).
+# RESAMPLE: SRC (HOME on the 909 page) chooses the midbody's source: the 909, or a key that holds a preset (empty ones skipped).
 # No presets yet: SOURCE stays on the 909. A preset chosen: the chain blank (no distortion), rendered once the knob
 # rests; SEL + ARP: back to the 909 and the chain as it was. Parameters: SOURCE 114, PITCH 115; DIST1's TYPE 19.
 master 4096
@@ -21,10 +21,10 @@ turn K1 1
 expect p114 3
 expect p19 0
 wait 600
-expect bounce 3
+expect resample 3
 tap PLAY
 wait 800
-shot bounce.png
+shot resample.png
 # the sample a fifth up
 turn K2 7
 expect p115 7
@@ -36,5 +36,5 @@ release SEL
 expect p114 0
 expect p19 1
 wait 400
-expect bounce 0
+expect resample 0
 tap PLAY
