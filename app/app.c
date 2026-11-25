@@ -15,18 +15,21 @@
  *   ENV          PNCH (again: P.EQ, and back)                        SEQ  GRP.A (again: its next band)
  *   OCT-         SUB                                                 OCT+ TOTAL (again: its next band)
  *   REC          PERF (again: ENV, and back); SEL + REC: the connections page (Bluetooth MIDI devices, the USB
- *                port's role): SELECT moves its cursor, SAVE connects or lets go, SEL + REC back
+ *                port's role, the MIDI channel): SELECT moves its cursor, SAVE connects or lets go, K1 turns the
+ *                channel, SEL + REC back
  *   K1..K4       the page's first four parameters; with SEL held, the next four
  *   SEL + white key    load the preset on that key; SAVE + white key: save the kick there. Held, SEL and
  *                SAVE light the keys that hold a preset half, the one loaded or saved last bright
  *   ARP          throw the dice: extreme curves on both EQs, new distortions, as loud as a new kick
  *   SEL + ARP    undo the last throw
- *   PRESETS      tempo, 60..300 BPM; ALGO: TRANSPOSE, PLAY's kick and the keys -12 .. +12 semitones
+ *   PRESETS      tempo, 60..300 BPM (kept, with the MIDI channel, in OBJ_SETTINGS); ALGO: TRANSPOSE, PLAY's
+ *                kick and the keys -12 .. +12 semitones
  *   MIDI         clock in (USB, TRS, Bluetooth: followed, as FMLarynx and Amenity follow it) and out (PLAY on our
  *                own tempo), Start / Continue / Stop, notes in; everything passed on (THRU)
  *   PLAY         a kick on every beat, or stop
  *   keys         a kick at that key's pitch: G4 (the middle G) is the root, G3 an octave down, G5 an octave up
- *   MIDI in      note on: a kick at the note's pitch, note 67 (G4) the root, folded into an octave down or up
+ *   MIDI in      note on (any channel, or the one set): a kick at the note's pitch, note 67 (G4) the root, folded
+ *                into an octave down or up
  *   MASTER       volume
  * Part of the unity build (device/unity.c, host/plat_host.c), after the platform: gfx.c and announce.c are in
  * scope. The sound is app/kick/kick.c. */
@@ -124,7 +127,8 @@ static kick_kit_t engine;                /* the audio interrupt's */
 
 static volatile uint8_t playing;         /* a kick every beat (PLAY, or an outside Start) */
 static volatile int32_t tempo = TEMPO_DEF;
-static volatile uint32_t kicks;          /* triggered so far (the host's checks, the screen's beat light) */
+static volatile uint8_t midi_ch;         /* the notes heard: 0 all channels, 1..16 that one (the connections page) */
+static volatile uint32_t kicks;         /* triggered so far (the host's checks, the screen's beat light) */
 static volatile int32_t last_semis;
 
 /* the keys' kicks, from the main loop to the render: a small ring */
@@ -425,8 +429,9 @@ void app_tick(void)
             if (age > STAMP_OFF || age < -STAMP_OFF)
                 stamp = read;
             gk_midi_realtime(st, from, stamp);
-        } else if ((st & 0xF0u) == 0x90u && d2 && midiq_w - midiq_r < MIDIQ) {   /* a note: a kick at its pitch */
-            midiq[midiq_w % MIDIQ] = (int8_t)fold((int)d1 - ROOT_NOTE);         /* (any channel; not transposed) */
+        } else if ((st & 0xF0u) == 0x90u && d2 && (!midi_ch || (st & 0x0Fu) == midi_ch - 1u) &&
+                   midiq_w - midiq_r < MIDIQ) {  /* a note on our channel (or any: ALL): a kick at its pitch */
+            midiq[midiq_w % MIDIQ] = (int8_t)fold((int)d1 - ROOT_NOTE);         /* (not transposed) */
             midiq_w++;
         }
     }
@@ -664,6 +669,53 @@ static void preset_save(int slot)
     app_say("SAVED", t);
 }
 
+/* ---- what survives a power-off besides the presets: the store object OBJ_SETTINGS, the tempo and the MIDI channel.
+ * Saved 2 s after the last change, once it is quiet (not playing, no kick for 2 s): a save stalls the sound a moment,
+ * as on FMLarynx. Fields are only ever added at the end; a shorter object (an older firmware's) keeps the defaults for
+ * the rest. Not in the backup (that replaces the presets alone). */
+#define SET_MAGIC 0x5347424Bu            /* "KBGS" */
+typedef struct {
+    uint32_t magic;
+    int16_t tempo;
+    uint8_t midi_ch;                     /* 0 all, 1..16 */
+    uint8_t pad;
+} settings_t;
+static uint8_t set_dirty;
+static uint32_t set_at;                  /* the last change */
+static uint32_t set_saves;               /* (the host's checks) */
+
+static void settings_load(void)
+{
+    settings_t s;
+    int n = plat_store_load(OBJ_SETTINGS, &s, sizeof s);
+    tempo = TEMPO_DEF;
+    midi_ch = 0;
+    if (n < 8 || s.magic != SET_MAGIC)
+        return;
+    tempo = clamp(s.tempo, TEMPO_MIN, TEMPO_MAX);
+    midi_ch = (uint8_t)(s.midi_ch > 16u ? 0u : s.midi_ch);
+}
+
+static void settings_changed(void)
+{
+    set_dirty = 1;
+    set_at = plat_ms();
+}
+
+static void settings_poll(uint32_t now)
+{
+    settings_t s;
+    if (!set_dirty || backup_held || playing || now - set_at < 2000u || (ui.kicked && now - ui.kick_at < 2000u))
+        return;
+    s.magic = SET_MAGIC;
+    s.tempo = (int16_t)tempo;
+    s.midi_ch = midi_ch;
+    s.pad = 0;
+    if (plat_store_save(OBJ_SETTINGS, &s, sizeof s) == 0)
+        set_saves++;
+    set_dirty = 0;                       /* (a full pool: not tried again each frame; the next change tries) */
+}
+
 /* ---- backup and restore over USB (fm1-base device/backup.c; the render page, web/render, reads the backup too):
  * presets are saved as they are made, so a flush has nothing to do; while a backup streams, SAVE waits */
 int app_backup_playing(void) { return playing; }
@@ -699,6 +751,7 @@ void app_init(void)
     kick_kit_reset(&engine);
     cook();
     presets_load();
+    settings_load();                     /* the tempo and the MIDI channel as they were */
     cook();                              /* (a preset as the punch's source) */
     preset_cur = -1;                     /* a new kick at power-on; the presets wait on their keys */
     preset_edited = 0;
@@ -786,7 +839,8 @@ static void param_turn(int slot, int detents)
 
 /* ---- the connections page (SEL + REC), in the knobs' place: the Bluetooth MIDI devices found (lib/btdev: the scan
  * while it is up; the one connected), then the USB port's role (DEVICE, to a computer, or HOST to a MIDI device such
- * as another FM-1), as a list: SELECT moves the cursor, SAVE does what the row's action says, SEL + REC goes back.
+ * as another FM-1), then the MIDI channel the notes are heard on (ALL, 1..16: K1 turns it), as a list: SELECT moves
+ * the cursor, SAVE does what the row's action says, SEL + REC goes back.
  * The clock and everything passed on go to all of them; a Start from any of them is followed. As FMLarynx's and
  * Amenity's. */
 static const char *upper(const char *s)          /* a device's name as the screen's fonts have it: capitals */
@@ -800,14 +854,19 @@ static const char *upper(const char *s)          /* a device's name as the scree
 }
 static int link_devrows(void) { return btdev_busy() || plat_ble_linked() ? 1 : btdev_count() ? btdev_count() : 1; }
 static int link_usb_row(void) { return link_devrows(); }
+static int link_ch_row(void) { return link_usb_row() + 1; }
 static const char *link_action(void)
 {
+    if (ui.link_row >= link_ch_row())
+        return "";
     if (ui.link_row >= link_usb_row())
         return plat_usb_host_state() == USBH_OFF ? "HOST" : "DEVICE";
     return btdev_busy() ? "LET GO" : plat_ble_linked() ? "" : btdev_count() ? "CONNECT" : "";
 }
 static void link_enter(void)
 {
+    if (ui.link_row >= link_ch_row())
+        return;
     if (ui.link_row >= link_usb_row()) {
         plat_usb_host(plat_usb_host_state() == USBH_OFF);
         return;
@@ -820,6 +879,23 @@ static void link_enter(void)
         app_say(ev == BTDEV_CONNECTING ? "CONNECTING" : "BLUETOOTH",
                 ev == BTDEV_CONNECTING ? upper(btdev_name()) : btdev_word(ev));
     }
+}
+static void ch_text(char *t)                    /* the MIDI channel: "ALL", "10" */
+{
+    t[0] = 0;
+    if (midi_ch)
+        int_text(midi_ch, t);
+    else
+        text_cat(t, "ALL");
+}
+static void link_ch_turn(int32_t e)              /* K1 on the channel's row: ALL, 1 .. 16 */
+{
+    char t[8];
+    midi_ch = (uint8_t)clamp((int)midi_ch + (e > 0 ? 1 : -1), 0, 16);
+    settings_changed();
+    ch_text(t);
+    app_say("MIDI CHANNEL", t);
+    ui.redraw = 1;
 }
 static void link_line(int32_t y, int row, const char *label, const char *text, uint16_t c)
 {
@@ -840,8 +916,8 @@ static void link_draw(void)                      /* the panel under the header: 
     cv_text(6, 4, &FONT_XS, "CONNECTIONS", C_HI);
     if (plat_ble_connected())
         cv_text(234 - text_w(&FONT_XS, "COMPUTER: BT"), 4, &FONT_XS, "COMPUTER: BT", C_GRAY);
-    first = ui.link_row < rows ? (int)ui.link_row - 1 : rows - 3;   /* three device rows at most, the cursor's seen */
-    first = first > rows - 3 ? rows - 3 : first;
+    first = ui.link_row < rows ? (int)ui.link_row : rows - 2;   /* two device rows at most, the cursor's seen */
+    first = first > rows - 2 ? rows - 2 : first;
     first = first < 0 ? 0 : first;
     if (btdev_busy()) {
         t[0] = 0;
@@ -857,7 +933,7 @@ static void link_draw(void)                      /* the panel under the header: 
         link_line(y, 0, "BT", "LOOKING...", C_GRAY);
         y += 14;
     } else
-        for (i = first; i < first + 3 && i < n; i++, y += 14)
+        for (i = first; i < first + 2 && i < n; i++, y += 14)
             if (btdev_found(i, name, 0))
                 link_line(y, i, i == first ? "BT" : 0, upper(name), C_GRAY);
     if (u == USBH_OFF)
@@ -871,7 +947,14 @@ static void link_draw(void)                      /* the panel under the header: 
         link_line(y, rows, "USB", t, C_HI);
     } else
         link_line(y, rows, "USB", "HOST - LOOKING", C_GRAY);
-    if (link_action()[0]) {                      /* what SAVE does on the row: "SAVE=CONNECT" */
+    y += 14;
+    t[0] = 0;
+    text_cat(t, "CHANNEL ");
+    ch_text(t + 8);
+    link_line(y, rows + 1, "MIDI", t, midi_ch ? C_HI : C_GRAY);
+    if (ui.link_row == link_ch_row())
+        cv_text(6, 78, &FONT_XS, "K1=CHANNEL", C_AMB);
+    else if (link_action()[0]) {                      /* what SAVE does on the row: "SAVE=CONNECT" */
         t[0] = 0;
         text_cat(t, "SAVE=");
         text_cat(t, link_action());
@@ -898,13 +981,13 @@ static void link_poll(void)                      /* every frame: the scan, what 
     case USBH_MSG_LOST: app_say("USB", "DEVICE LOST"); break;
     default: break;
     }
-    if (ui.link_row > link_usb_row())
-        ui.link_row = (uint8_t)link_usb_row();
+    if (ui.link_row > link_ch_row())
+        ui.link_row = (uint8_t)link_ch_row();
     if (!ui.link)
         return;
     sig = (uint32_t)btdev_count() | (uint32_t)btdev_pick() << 4 | (uint32_t)btdev_busy() << 8 |
           (uint32_t)btdev_ready() << 9 | (uint32_t)plat_ble_connected() << 10 | (uint32_t)plat_usb_host_state() << 11 |
-          (uint32_t)plat_ble_linked() << 13 | (uint32_t)ui.link_row << 14 | 1u << 31;
+          (uint32_t)plat_ble_linked() << 13 | (uint32_t)ui.link_row << 14 | (uint32_t)midi_ch << 22 | 1u << 31;
     if (sig != ui.link_sig || now - ui.link_ms >= 500u) {   /* (the names found may change: twice a second) */
         ui.link_sig = sig;
         ui.link_ms = now;
@@ -1038,7 +1121,7 @@ static void input(void)
         if ((e = plat_enc((int)k)) == 0)
             continue;
         if (k == EN_SELECT && ui.link) { /* the connections page: its cursor */
-            int r = (int)ui.link_row + (e > 0 ? 1 : -1), last = link_usb_row();
+            int r = (int)ui.link_row + (e > 0 ? 1 : -1), last = link_ch_row();
             ui.link_row = (uint8_t)(r < 0 ? 0 : r > last ? last : r);
             if (ui.link_row < link_usb_row() && !btdev_busy() && btdev_count())
                 btdev_choose(ui.link_row);
@@ -1048,6 +1131,7 @@ static void input(void)
         } else if (k == EN_PRESET) {
             char t[8];
             tempo = clamp(tempo + e, TEMPO_MIN, TEMPO_MAX);
+            settings_changed();
             int_text(tempo, t);
             app_say("TEMPO", t);
         } else if (k == EN_ALGO) {       /* TRANSPOSE: PLAY's kick and the keys, -12 .. +12 semitones */
@@ -1057,6 +1141,8 @@ static void input(void)
             int_text(xpose < 0 ? -xpose : xpose, t + 1);
             text_cat(t, "ST");
             app_say("TRANSPOSE", t);
+        } else if (k == EN_K1 && ui.link && ui.link_row == link_ch_row()) {
+            link_ch_turn(e);
         } else if (k >= EN_K1 && k <= EN_K4) {
             param_turn(row * 4 + (int)(k - EN_K1), e);
         }
@@ -1648,6 +1734,7 @@ void app_frame(void)
     speak();
     resample_check(now);
     link_poll();
+    settings_poll(now);
     if (ui.wave_dirty && now - ui.wave_at >= 80u) {
         ui.wave_dirty = 0;
         ui.wave_at = now;
@@ -1712,6 +1799,10 @@ int app_expect(const char *what, int *got)
         *got = playing;
     else if (!strcmp(what, "tempo"))
         *got = tempo;
+    else if (!strcmp(what, "midi_ch"))   /* the notes' channel: 0 all, 1..16; the settings saved so far */
+        *got = midi_ch;
+    else if (!strcmp(what, "set_saves"))
+        *got = (int)set_saves;
     else if (!strcmp(what, "link"))      /* the connections page is up */
         *got = ui.link;
     else if (!strcmp(what, "xpose"))

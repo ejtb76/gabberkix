@@ -1,5 +1,6 @@
-# The connections page (SEL + REC), in the knobs' place: the Bluetooth MIDI devices found, then the USB port. SELECT
-# moves the cursor, SAVE enters (connect / let go; USB to HOST / back to DEVICE); the clock goes out to all.
+# The connections page (SEL + REC), in the knobs' place: the Bluetooth MIDI devices found, then the USB port, then
+# the MIDI channel (channel.txt). SELECT moves the cursor, SAVE enters (connect / let go; USB to HOST / back to
+# DEVICE); the clock goes out to all.
 master 4096
 wait 1500
 press SEL
@@ -14,7 +15,8 @@ shot 02-bt-connect.png
 expect ble_dev 4
 tap SAVE
 wait 500
-turn SELECT 3
+turn SELECT 9
+turn SELECT -1
 wait 200
 shot 03-usb-row.png
 tap SAVE

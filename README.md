@@ -31,9 +31,9 @@ sixteen presets, resamples a preset as the source of a new one, and follows or s
 The firmware is also attached to each release on GitHub as `gabberkix-X.Y.Z.fwsc`, for other installers such as The
 Firmware Hub.
 
-**What it keeps:** the sixteen presets, in the FM-1's flash outside the firmware: they survive a restart and an
-update of GABBERKIX. GABBERKIX does not read other firmwares' projects or samples, and another firmware may erase its
-presets: keep them in a backup file first (the render page's **Save backup file**).
+**What it keeps:** the sixteen presets, the tempo and the MIDI channel, in the FM-1's flash outside the firmware:
+they survive a restart and an update of GABBERKIX. GABBERKIX does not read other firmwares' projects or samples, and
+another firmware may erase its presets: keep them in a backup file first (the render page's **Save backup file**).
 
 ## The sound
 
@@ -139,11 +139,11 @@ screen are computed from the same coefficients the sound uses (`tools/chain_test
 | **SEL** held + **ARP** | Undo the last throw |
 | **K1–K4** | The page's top row |
 | **SEL** held + **K1–K4** | The second row |
-| **PRESETS** | Tempo, 60–300 BPM (160 at power-on) |
+| **PRESETS** | Tempo, 60–300 BPM (160 at first; kept over a power-off) |
 | **ALGO** | TRANSPOSE: PLAY's kick and the keys, -12 to +12 semitones (MIDI's notes keep their pitch); shown left of the tempo |
 | **PLAY** | A kick on every beat, at the root; again to stop |
 | **Keys** | A kick at the key's pitch: the middle G (G4) is the root, the low G an octave down, the top G an octave up |
-| **MIDI in** | Note on (USB, TRS, Bluetooth): a kick at the note's pitch, note 67 (G4) the root, other octaves folded into an octave down or up; clock, Start, Continue, Stop followed |
+| **MIDI in** | Note on (USB, TRS, Bluetooth), on the channel set on the connections page (ALL: any): a kick at the note's pitch, note 67 (G4) the root, other octaves folded into an octave down or up; clock, Start, Continue, Stop followed |
 | **MASTER** | Volume |
 
 The pages' knobs:
@@ -190,8 +190,12 @@ GABBERKIX follows MIDI clock and sends it, as Amenity and FMLarynx do (the same 
   so another FM-1 or a DAW follows the sound.
 - **THRU**: everything that comes in (but SysEx) goes on at once to the other outputs, never back where it came from.
 - **The connections page** (SEL + REC): the Bluetooth MIDI devices found nearby (another FM-1, a controller) and the
-  USB port's role, DEVICE (to a computer) or HOST (to a MIDI device). SELECT moves the cursor, SAVE connects or lets
-  go, SEL + REC goes back. The clock and THRU reach every connection.
+  USB port's role, DEVICE (to a computer) or HOST (to a MIDI device), then the MIDI channel the notes are heard on.
+  SELECT moves the cursor, SAVE connects or lets go, SEL + REC goes back. On the MIDI row K1 sets the channel: ALL
+  (any channel, the default) or 1 to 16, so GABBERKIX can be the kick module on its own channel in a chain. THRU still
+  passes every channel on; clock, Start and Stop have no channel and are always followed. The channel and the tempo
+  are saved two seconds after the last change, once GABBERKIX is quiet (not playing, no kick for two seconds), since
+  writing the flash holds the sound up a moment. The clock and THRU reach every connection.
 
 ## Presets
 

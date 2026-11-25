@@ -1,0 +1,68 @@
+# The MIDI channel (the connections page's last row, K1 turns it: ALL, 1..16) and the tempo, both kept over a restart
+# (OBJ_SETTINGS, saved 2 s after the change once it is quiet). THRU passes every channel on.
+master 4096
+expect midi_ch 0
+expect tempo 160
+# ALL: a note on any channel plays
+midi 90 43 64
+wait 300
+expect kicks 1
+midi 9F 43 64
+wait 300
+expect kicks 2
+# the connections page, down to its last row: K1 sets channel 10
+press SEL
+tap REC
+release SEL
+turn SELECT 9
+wait 200
+turn K1 10
+wait 200
+expect midi_ch 10
+shot 01-channel-10.png
+# the cursor elsewhere: K1 does not change the channel
+turn SELECT -1
+turn K1 3
+expect midi_ch 10
+turn SELECT 1
+# channel 10 (status 99) plays, at its pitch; channel 1 does not, but goes on through
+midi 99 46 64
+wait 300
+expect kicks 3
+expect semis 3
+midi TRS 90 43 64
+wait 300
+expect kicks 3
+expect_out USB 90 43 64
+# the ends: ALL and 16, no further
+turn K1 20
+expect midi_ch 16
+turn K1 -30
+expect midi_ch 0
+turn K1 10
+expect midi_ch 10
+press SEL
+tap REC
+release SEL
+# the tempo too; nothing saved while playing
+turn PRESET -20
+expect tempo 140
+tap PLAY
+wait 3000
+expect set_saves 0
+tap PLAY
+wait 2500
+expect set_saves 1
+# a restart: channel 10 and 140 BPM
+reboot
+wait 300
+expect midi_ch 10
+expect tempo 140
+# (the simulator's kick count runs on over a restart: the pitch tells; PLAY's kicks were at the root)
+expect semis 0
+midi 90 46 64
+wait 300
+expect semis 0
+midi 99 46 64
+wait 300
+expect semis 3
